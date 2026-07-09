@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "npx vite build",
+    "build": "vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.68.0",
+    "@tailwindcss/vite": "^4.0.14",
+    "@vitejs/plugin-react": "^4.3.4",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "i18next": "^24.2.3",
@@ -21,16 +23,14 @@
     "react-leaflet": "^5.0.0",
     "react-router-dom": "^7.4.0",
     "socket.io-client": "^4.8.1",
-    "tailwind-merge": "^3.0.2"
+    "tailwind-merge": "^3.0.2",
+    "tailwindcss": "^4.0.14",
+    "vite": "^6.2.2"
   },
   "devDependencies": {
-    "@tailwindcss/vite": "^4.0.14",
     "@types/leaflet": "^1.9.16",
     "@types/react": "^19.0.11",
     "@types/react-dom": "^19.0.4",
-    "@vitejs/plugin-react": "^4.3.4",
-    "tailwindcss": "^4.0.14",
-    "typescript": "^5.8.2",
-    "vite": "^6.2.2"
+    "typescript": "^5.8.2"
   }
 }

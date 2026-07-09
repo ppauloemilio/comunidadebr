@@ -1,6 +1,6 @@
 {
   "buildCommand": "npm run build -w client",
-  "installCommand": "npm install --include=dev",
+  "installCommand": "NPM_CONFIG_PRODUCTION=false npm install",
   "outputDirectory": "client/dist",
   "framework": "vite",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
