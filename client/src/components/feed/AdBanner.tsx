@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
+import { api, mediaUrl } from '@/lib/api';
 import { useMonetization } from '@/hooks/useMonetization';
 import { cn } from '@/lib/utils';
 
@@ -30,7 +30,7 @@ function AdContent({ ad, compact }: { ad: Ad; compact?: boolean }) {
 
       {ad.image_url && (
         <img
-          src={ad.image_url}
+          src={mediaUrl(ad.image_url)}
           alt={ad.description || ad.business_name || t('feed.featuredUser')}
           className={`${imageHeight} w-full object-cover`}
         />
@@ -126,7 +126,7 @@ export function AdBanner({ placement = 'feed' }: { placement?: 'feed' | 'sidebar
   const nextAd = ads.length > 1 ? ads[(index + 1) % ads.length] : null;
   if (nextAd?.image_url) {
     const img = new Image();
-    img.src = nextAd.image_url;
+    img.src = mediaUrl(nextAd.image_url);
   }
 
   return (

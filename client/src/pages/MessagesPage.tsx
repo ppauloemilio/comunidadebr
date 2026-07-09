@@ -55,7 +55,8 @@ export function MessagesPage() {
 
   useEffect(() => {
     if (!activeId) return;
-    const socket = io({ path: '/socket.io' });
+    const socketBase = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/\/$/, '');
+    const socket = io(socketBase, { path: '/socket.io' });
     socket.emit('join_conversation', activeId);
     socket.on('new_message', () => {
       qc.invalidateQueries({ queryKey: ['messages', activeId] });

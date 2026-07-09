@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ImagePlus, X } from 'lucide-react';
-import { uploadFile } from '@/lib/api';
+import { uploadFile, mediaUrl } from '@/lib/api';
 
 type Props = {
   photos: string[];
@@ -37,7 +37,7 @@ export function BusinessPhotoPicker({ photos, onChange }: Props) {
         <div className="flex flex-wrap gap-2">
           {photos.map((url) => (
             <div key={url} className="relative h-24 w-24 overflow-hidden rounded-lg border border-slate-200">
-              <img src={url} alt="" className="h-full w-full object-cover" />
+              <img src={mediaUrl(url)} alt="" className="h-full w-full object-cover" />
               <button
                 type="button"
                 onClick={() => removePhoto(url)}

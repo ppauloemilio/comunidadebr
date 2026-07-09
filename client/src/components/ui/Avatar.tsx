@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export function Avatar({
@@ -21,8 +22,9 @@ export function Avatar({
     setImageFailed(false);
   }, [src]);
 
-  const showInitials = !src || imageFailed;
-  const showSpinner = externalLoading || (src && !imageLoaded && !imageFailed);
+  const resolvedSrc = mediaUrl(src);
+  const showInitials = !resolvedSrc || imageFailed;
+  const showSpinner = externalLoading || (resolvedSrc && !imageLoaded && !imageFailed);
 
   if (showInitials) {
     return (
@@ -43,7 +45,7 @@ export function Avatar({
         <div className="absolute inset-0 animate-pulse bg-brand-200" />
       )}
       <img
-        src={src}
+        src={resolvedSrc}
         alt={name}
         onLoad={() => setImageLoaded(true)}
         onError={() => setImageFailed(true)}

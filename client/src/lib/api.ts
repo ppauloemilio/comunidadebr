@@ -1,5 +1,17 @@
 const TOKEN_KEY = 'comunidade_token';
 
+const API_BASE = (import.meta.env.VITE_API_URL ?? '').replace(/\/$/, '');
+
+export function apiUrl(path: string) {
+  return `${API_BASE}/api${path}`;
+}
+
+export function mediaUrl(path: string | null | undefined) {
+  if (!path) return '';
+  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem(TOKEN_KEY);
   const headers: Record<string, string> = {
@@ -8,7 +20,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`/api${path}`, { ...options, headers });
+  const res = await fetch(apiUrl(path), { ...options, headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
     throw new Error(err.error || `HTTP ${res.status}`);
@@ -32,7 +44,7 @@ export async function uploadFile(file: File) {
   const form = new FormData();
   form.append('file', file);
   const token = getToken();
-  const res = await fetch('/api/upload', {
+  const res = await fetch(apiUrl('/upload'), {
     method: 'POST',
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,

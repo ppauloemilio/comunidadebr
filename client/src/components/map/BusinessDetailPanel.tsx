@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { Building2, ChevronRight, MapPin, X } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, mediaUrl } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar } from '@/components/ui/Avatar';
 import { categoryLabel } from '@/components/map/MapBusinessFilters';
@@ -102,7 +102,7 @@ export function BusinessDetailPanel({ businessId, onClose }: Props) {
               {business.photos.map((url) => (
                 <img
                   key={url}
-                  src={url}
+                  src={mediaUrl(url)}
                   alt=""
                   className="h-24 w-32 shrink-0 rounded-lg border border-slate-200 object-cover"
                 />
