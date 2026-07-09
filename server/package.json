@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "echo \"server: no build step\"",
+    "vercel-build": "echo \"server: skip\"",
     "start": "tsx src/index.ts"
   },
   "dependencies": {
