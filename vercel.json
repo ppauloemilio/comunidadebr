@@ -1,5 +1,5 @@
 {
-  "buildCommand": "npm run build -w client",
+  "buildCommand": "cd client && npx vite build",
   "installCommand": "npm install --include=dev",
   "outputDirectory": "client/dist",
   "framework": "vite",
