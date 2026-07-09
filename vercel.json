@@ -1,6 +1,6 @@
 {
   "buildCommand": "npm run build -w client",
-  "installCommand": "npm install",
+  "installCommand": "npm install --include=dev",
   "outputDirectory": "client/dist",
   "framework": "vite",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]

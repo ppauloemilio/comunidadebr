@@ -74,7 +74,11 @@ export function ProfileView({
   });
 
   const messageMutation = useMutation({
-    mutationFn: () => api('/conversations', { method: 'POST', body: JSON.stringify({ participant_ids: [userId], type: 'user_user' }) }),
+    mutationFn: () =>
+      api<{ id: string }>('/conversations', {
+        method: 'POST',
+        body: JSON.stringify({ participant_ids: [userId], type: 'user_user' }),
+      }),
     onSuccess: (conv: { id: string }) => navigate(`/messages?conversation=${conv.id}`),
   });
 
