@@ -18,6 +18,7 @@ type AuthContextType = {
   register: (data: { email: string; password: string; username: string; full_name: string; country?: string }) => Promise<void>;
   logout: () => void;
   refreshUser: () => Promise<void>;
+  patchUser: (patch: Partial<User>) => void;
 };
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -38,6 +39,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       clearToken();
       setUser(null);
     }
+  }, []);
+
+  const patchUser = useCallback((patch: Partial<User>) => {
+    setUser((current) => (current ? { ...current, ...patch } : current));
   }, []);
 
   useEffect(() => {
@@ -68,7 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, refreshUser, patchUser }}>
       {children}
     </AuthContext.Provider>
   );

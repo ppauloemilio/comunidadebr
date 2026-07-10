@@ -68,7 +68,7 @@ export function EditProfilePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const qc = useQueryClient();
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, patchUser } = useAuth();
   const [tab, setTab] = useState<EditTab>('info');
   const avatarRef = useRef<HTMLInputElement>(null);
   const coverRef = useRef<HTMLInputElement>(null);
@@ -231,6 +231,7 @@ export function EditProfilePage() {
         profile: { ...old.profile, cover_url: url },
       };
     });
+    if (field === 'avatar_url') patchUser({ avatar_url: url });
     await refreshUser();
     qc.invalidateQueries({ queryKey: ['profile', user?.id] });
   };
