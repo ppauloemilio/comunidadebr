@@ -40,13 +40,13 @@ export type AdvertisementClient = {
 const PLACEHOLDER_IMAGE = 'https://images.unsplash.com/photo-1529156069898-49953e39b3ac?w=400';
 
 const ACTIVE_WHERE = `is_active = 1
-  AND (start_date IS NULL OR start_date <= date('now'))
-  AND (end_date IS NULL OR end_date >= date('now'))`;
+  AND (start_date IS NULL OR start_date::date <= CURRENT_DATE)
+  AND (end_date IS NULL OR end_date::date >= CURRENT_DATE)`;
 
 export async function expireStaleAdvertisements(db: Db) {
   await db.prepare(
     `UPDATE advertisements SET is_active = 0
-     WHERE is_active = 1 AND end_date IS NOT NULL AND end_date < date('now')`
+     WHERE is_active = 1 AND end_date IS NOT NULL AND end_date::date < CURRENT_DATE`
   ).run();
 }
 

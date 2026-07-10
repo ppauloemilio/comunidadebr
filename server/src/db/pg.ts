@@ -16,9 +16,9 @@ export type Db = {
 function translateSql(sql: string): string {
   let n = 0;
   let out = sql.replace(/\?/g, () => `$${++n}`);
-  out = out.replace(/datetime\('now',\s*'\+1 year'\)/gi, "(NOW() + INTERVAL '1 year')");
-  out = out.replace(/datetime\('now'\)/gi, 'NOW()');
-  out = out.replace(/date\('now'\)/gi, 'CURRENT_DATE');
+  out = out.replace(/datetime\('now',\s*'\+1 year'\)/gi, "(NOW() + INTERVAL '1 year')::text");
+  out = out.replace(/datetime\('now'\)/gi, 'NOW()::text');
+  out = out.replace(/date\('now'\)/gi, 'CURRENT_DATE::text');
   out = out.replace(/\bexcluded\./gi, 'EXCLUDED.');
   out = out.replace(/""/g, "''");
   return out;
