@@ -20,12 +20,30 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(apiUrl(path), { ...options, headers });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: 'Erro desconhecido' }));
-    throw new Error(err.error || `HTTP ${res.status}`);
+  let res: Response;
+  try {
+    res = await fetch(apiUrl(path), { ...options, headers });
+  } catch {
+    throw new Error('Não foi possível conectar à API. Verifique sua conexão.');
   }
-  return res.json();
+
+  const text = await res.text();
+  let data: { error?: string } & T = {} as { error?: string } & T;
+  if (text) {
+    try {
+      data = JSON.parse(text) as { error?: string } & T;
+    } catch {
+      if (!res.ok) {
+        throw new Error(`API indisponível (HTTP ${res.status}). Tente de novo em alguns segundos.`);
+      }
+      throw new Error('Resposta inválida da API');
+    }
+  }
+
+  if (!res.ok) {
+    throw new Error(data.error || `HTTP ${res.status}`);
+  }
+  return data as T;
 }
 
 export function setToken(token: string) {

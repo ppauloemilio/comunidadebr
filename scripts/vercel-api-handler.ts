@@ -11,7 +11,12 @@ export const config = {
 let appPromise: ReturnType<typeof getApp> | null = null;
 
 function getAppSafe() {
-  if (!appPromise) appPromise = getApp();
+  if (!appPromise) {
+    appPromise = getApp().catch((err) => {
+      appPromise = null;
+      throw err;
+    });
+  }
   return appPromise;
 }
 
