@@ -1,5 +1,4 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import pg from 'pg';
 import { v4 as uuid } from 'uuid';
@@ -9,8 +8,8 @@ import { seedAppSettings } from '../lib/settings.js';
 import { seedMonetizationExamples } from '../lib/seedMonetizationExamples.js';
 import { ensureAdminUser } from '../lib/adminUser.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-dotenv.config({ path: path.join(__dirname, '../../.env') });
+dotenv.config({ path: path.resolve(process.cwd(), 'server', '.env') });
+dotenv.config();
 
 let pool: pg.Pool | null = null;
 let db: Db | null = null;
