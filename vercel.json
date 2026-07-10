@@ -1,6 +1,0 @@
-{
-  "installCommand": "npm install --include=dev",
-  "buildCommand": "cd client && node ../node_modules/vite/bin/vite.js build",
-  "outputDirectory": "client/dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
-}
