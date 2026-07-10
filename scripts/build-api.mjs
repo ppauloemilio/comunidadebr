@@ -13,12 +13,13 @@ await esbuild.build({
   outfile,
   sourcemap: false,
   logLevel: 'info',
-  // Keep native/optional packages external if any appear later
   external: ['sharp', 'canvas'],
 });
 
-// Remove TS entry so Vercel uses the bundled JS
-const tsEntry = path.resolve('api/index.ts');
-if (fs.existsSync(tsEntry)) fs.unlinkSync(tsEntry);
+// Ensure no competing TS serverless entry
+for (const name of ['index.ts', 'index.mjs']) {
+  const p = path.resolve('api', name);
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+}
 
 console.log('API bundled ->', outfile);

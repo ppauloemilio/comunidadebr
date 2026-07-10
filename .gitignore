@@ -5,7 +5,6 @@ build/
 *.db-journal
 server/data/
 uploads/
-api/index.js
 .env
 .env.local
 .DS_Store

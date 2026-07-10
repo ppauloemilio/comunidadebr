@@ -2,12 +2,6 @@
   "installCommand": "npm install --include=dev --workspace=client --workspace=server --include-workspace-root",
   "buildCommand": "node scripts/build-api.mjs && npm exec -w client -- vite build && rm -rf dist && cp -r client/dist dist",
   "outputDirectory": "dist",
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 60,
-      "memory": 1024
-    }
-  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api" },
     { "source": "/uploads/(.*)", "destination": "/api" },
