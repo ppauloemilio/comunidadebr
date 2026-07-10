@@ -34,10 +34,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     try {
       const me = await api<User & { profile?: unknown }>('/auth/me');
-      setUser(me);
+      setUser((current) => {
+        // Evita apagar avatar local se a API ainda não trouxe a URL
+        if (current?.avatar_url && !me.avatar_url) {
+          return { ...me, avatar_url: current.avatar_url };
+        }
+        return me;
+      });
     } catch {
-      clearToken();
-      setUser(null);
+      setUser((current) => {
+        if (current) return current;
+        clearToken();
+        return null;
+      });
     }
   }, []);
 
