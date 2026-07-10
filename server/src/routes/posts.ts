@@ -42,6 +42,7 @@ async function formatPost(row: Record<string, unknown>, likedByMe = false, autho
     author_is_premium: authorIsPremium,
     author_snapshot: { ...snapshot, is_premium: authorIsPremium },
     created_at: row.created_at,
+    updated_at: row.updated_at || null,
     liked_by_me: likedByMe,
   };
 }
@@ -138,6 +139,61 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   res.json({ ok: true });
 });
 
+router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const { content, images } = req.body as { content?: string; images?: string[] };
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
+    | Record<string, unknown>
+    | undefined;
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+  if (post.author_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
+
+  const nextContent = content !== undefined ? String(content).trim() : String(post.content || '');
+  if (!nextContent) return res.status(400).json({ error: 'Conteúdo obrigatório' });
+
+  const nextImages = images !== undefined ? images : parseJson(post.images as string, [] as string[]);
+  await db.prepare(
+    `UPDATE posts SET content = ?, images = ?, updated_at = datetime('now') WHERE id = ?`
+  ).run(nextContent, JSON.stringify(nextImages), req.params.id);
+
+  const updated = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+  const liked = !!(await db.prepare('SELECT id FROM likes WHERE post_id = ? AND user_id = ?').get(req.params.id, req.user!.id));
+  const premium = (await authorPremiumMap(db, [req.user!.id])).get(req.user!.id) ?? false;
+  res.json(await formatPost(updated as Record<string, unknown>, liked, premium));
+});
+
+router.get('/:id/likes', authMiddleware, async (req, res) => {
+  const db = await getDb();
+  const post = await db.prepare('SELECT id FROM posts WHERE id = ? AND is_active = 1').get(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+
+  const likes = await db.prepare(
+    'SELECT id, user_id, user_snapshot, created_at FROM likes WHERE post_id = ? ORDER BY created_at DESC'
+  ).all(req.params.id);
+
+  res.json(
+    likes.map((like) => {
+      const snap = parseJson((like as { user_snapshot: string }).user_snapshot, {}) as {
+        id?: string;
+        username?: string;
+        full_name?: string;
+        avatar_url?: string | null;
+      };
+      return {
+        id: like.id,
+        user_id: like.user_id,
+        created_at: like.created_at,
+        user: {
+          id: snap.id || like.user_id,
+          username: snap.username || '',
+          full_name: snap.full_name || 'Usuário',
+          avatar_url: snap.avatar_url || null,
+        },
+      };
+    })
+  );
+});
+
 router.post('/:id/like', authMiddleware, async (req: AuthRequest, res) => {
   const db = await getDb();
   const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
@@ -178,13 +234,14 @@ router.get('/:id/comments', authMiddleware, async (req, res) => {
   res.json(
     comments.map((c) => ({
       ...c,
+      parent_id: (c as { parent_id?: string | null }).parent_id || null,
       author_snapshot: parseJson((c as { author_snapshot: string }).author_snapshot, {}),
     }))
   );
 });
 
 router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
-  const { content } = req.body;
+  const { content, parent_id } = req.body as { content?: string; parent_id?: string | null };
   if (!content?.trim()) return res.status(400).json({ error: 'Comentário vazio' });
 
   const db = await getDb();
@@ -193,19 +250,64 @@ router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
     | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
+  let parentAuthorId: string | null = null;
+  if (parent_id) {
+    const parent = (await db.prepare(
+      'SELECT id, author_id, post_id, is_active FROM comments WHERE id = ?'
+    ).get(parent_id)) as { id: string; author_id: string; post_id: string; is_active: number } | undefined;
+    if (!parent || parent.post_id !== post.id || !parent.is_active) {
+      return res.status(400).json({ error: 'Comentário pai inválido' });
+    }
+    parentAuthorId = parent.author_id;
+  }
+
   const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
   const id = uuid();
   await db.prepare(
-    'INSERT INTO comments (id, post_id, author_id, content, author_snapshot) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, post.id, user.id, content.trim(), userSnapshot(user));
+    'INSERT INTO comments (id, post_id, author_id, content, author_snapshot, parent_id) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, post.id, user.id, content.trim(), userSnapshot(user), parent_id || null);
   await db.prepare('UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?').run(post.id);
   await createNotification(post.author_id, user.id, 'comment', 'post', post.id);
+  if (parentAuthorId) {
+    await createNotification(parentAuthorId, user.id, 'comment_reply', 'comment', id);
+  }
 
   const comment = await db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
   res.status(201).json({
     ...comment,
+    parent_id: (comment as { parent_id?: string | null }).parent_id || null,
     author_snapshot: parseJson((comment as { author_snapshot: string }).author_snapshot, {}),
   });
+});
+
+router.delete('/:id/comments/:commentId', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = (await db.prepare('SELECT id, author_id FROM posts WHERE id = ?').get(req.params.id)) as
+    | { id: string; author_id: string }
+    | undefined;
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+
+  const comment = (await db.prepare(
+    'SELECT id, author_id, post_id, is_active FROM comments WHERE id = ?'
+  ).get(req.params.commentId)) as
+    | { id: string; author_id: string; post_id: string; is_active: number }
+    | undefined;
+  if (!comment || comment.post_id !== post.id) return res.status(404).json({ error: 'Comentário não encontrado' });
+  if (!comment.is_active) return res.json({ ok: true });
+
+  const canDelete = comment.author_id === req.user!.id || post.author_id === req.user!.id;
+  if (!canDelete) return res.status(403).json({ error: 'Sem permissão' });
+
+  await db.prepare('UPDATE comments SET is_active = 0 WHERE id = ?').run(comment.id);
+  // Também oculta respostas diretas do comentário excluído
+  await db.prepare('UPDATE comments SET is_active = 0 WHERE parent_id = ? AND is_active = 1').run(comment.id);
+
+  const activeCount = (await db.prepare(
+    'SELECT COUNT(*)::int as c FROM comments WHERE post_id = ? AND is_active = 1'
+  ).get(post.id)) as { c: number };
+  await db.prepare('UPDATE posts SET comments_count = ? WHERE id = ?').run(activeCount.c, post.id);
+
+  res.json({ ok: true, comments_count: activeCount.c });
 });
 
 router.post('/:id/share', authMiddleware, async (req: AuthRequest, res) => {
