@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
@@ -14,18 +14,28 @@ export function Avatar({
   loading?: boolean;
 }) {
   const initials = name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase();
-  const [imageLoaded, setImageLoaded] = useState(false);
   const [imageFailed, setImageFailed] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement>(null);
 
   const resolvedSrc = mediaUrl(src);
 
   useEffect(() => {
-    setImageLoaded(false);
     setImageFailed(false);
+    setImageLoaded(false);
+  }, [resolvedSrc]);
+
+  // Imagens em cache podem disparar onLoad antes do React registrar o handler
+  useEffect(() => {
+    const img = imgRef.current;
+    if (img?.complete && img.naturalWidth > 0) {
+      setImageLoaded(true);
+      setImageFailed(false);
+    }
   }, [resolvedSrc]);
 
   const showPhoto = !!resolvedSrc && !imageFailed;
-  const showSpinner = externalLoading || (showPhoto && !imageLoaded);
+  const showSpinner = !!externalLoading && !showPhoto;
 
   return (
     <div
@@ -45,6 +55,7 @@ export function Avatar({
       )}
       {resolvedSrc && (
         <img
+          ref={imgRef}
           src={resolvedSrc}
           alt={name}
           onLoad={() => {
@@ -53,8 +64,9 @@ export function Avatar({
           }}
           onError={() => setImageFailed(true)}
           className={cn(
-            'absolute inset-0 h-full w-full object-cover object-center transition-opacity duration-300',
-            showPhoto && imageLoaded ? 'opacity-100' : 'opacity-0'
+            'absolute inset-0 h-full w-full object-cover object-center',
+            showPhoto ? 'opacity-100' : 'opacity-0',
+            !imageLoaded && showPhoto && 'bg-brand-100'
           )}
         />
       )}

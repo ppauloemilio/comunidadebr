@@ -7,7 +7,7 @@ import {
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
-import { pickBestAvatar, readCachedAvatar } from '@/lib/avatarCache';
+import { pickBestAvatar, readCachedAvatar, writeCachedAvatar } from '@/lib/avatarCache';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils';
@@ -21,12 +21,33 @@ const mainNav = [
 
 export function Layout() {
   const { t } = useTranslation();
-  const { user, refreshUser, logout } = useAuth();
+  const { user, refreshUser, logout, patchUser } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const isFeed = location.pathname === '/feed' || location.pathname === '/';
-  const headerAvatar = pickBestAvatar(user?.avatar_url, readCachedAvatar(user?.id));
+
+  // Mesma fonte do avatar do perfil — evita bola verde no header
+  const { data: meProfile } = useQuery({
+    queryKey: ['profile', user?.id],
+    queryFn: () => api<{ avatar_url: string | null }>(`/users/${user!.id}`),
+    enabled: !!user?.id,
+    staleTime: 60_000,
+  });
+
+  const headerAvatar = pickBestAvatar(
+    meProfile?.avatar_url,
+    user?.avatar_url,
+    readCachedAvatar(user?.id)
+  );
+
+  useEffect(() => {
+    if (!user?.id || !meProfile?.avatar_url) return;
+    writeCachedAvatar(user.id, meProfile.avatar_url);
+    if (user.avatar_url !== meProfile.avatar_url) {
+      patchUser({ avatar_url: meProfile.avatar_url });
+    }
+  }, [user?.id, user?.avatar_url, meProfile?.avatar_url, patchUser]);
 
   useEffect(() => {
     refreshUser();
