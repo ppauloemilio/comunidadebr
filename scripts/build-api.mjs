@@ -5,7 +5,7 @@ import path from 'path';
 const outfile = path.resolve('api/index.js');
 
 await esbuild.build({
-  entryPoints: [path.resolve('api/vercel-handler.ts')],
+  entryPoints: [path.resolve('scripts/vercel-api-handler.ts')],
   bundle: true,
   platform: 'node',
   target: 'node22',
