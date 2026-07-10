@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
+import fs from 'fs';
 import path from 'path';
+import { put } from '@vercel/blob';
 import { v4 as uuid } from 'uuid';
 import { getDb, parseJson } from '../db/database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
@@ -8,11 +10,20 @@ import { uploadsDir } from '../lib/uploads.js';
 import { getMonetizationSettings, isPremiumProfile } from '../lib/settings.js';
 import { getActiveAdvertisements } from '../lib/advertisements.js';
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, uploadsDir),
-  filename: (_req, file, cb) => cb(null, `${uuid()}${path.extname(file.originalname)}`),
+const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+
+const upload = multer({
+  storage: isServerless
+    ? multer.memoryStorage()
+    : multer.diskStorage({
+        destination: (_req, _file, cb) => cb(null, uploadsDir),
+        filename: (_req, file, cb) => {
+          const ext = path.extname(file.originalname) || '.jpg';
+          cb(null, `${uuid()}${ext}`);
+        },
+      }),
+  limits: { fileSize: 5 * 1024 * 1024 },
 });
-const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = Router();
 
@@ -200,6 +211,42 @@ router.get('/feed/sidebar', authMiddleware, async (req: AuthRequest, res) => {
 
 router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
+
+  const mime = req.file.mimetype || 'image/jpeg';
+  const ext =
+    path.extname(req.file.originalname) ||
+    (mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg');
+  const filename = `${uuid()}${ext}`;
+  const buffer = req.file.buffer ?? (req.file.filename
+    ? fs.readFileSync(path.join(uploadsDir, req.file.filename))
+    : null);
+
+  if (!buffer) return res.status(500).json({ error: 'Upload inválido' });
+
+  // Preferência: Vercel Blob (URL pública permanente)
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    try {
+      const blob = await put(`uploads/${filename}`, buffer, {
+        access: 'public',
+        contentType: mime,
+        token: process.env.BLOB_READ_WRITE_TOKEN,
+      });
+      return res.json({ url: blob.url });
+    } catch (err) {
+      console.error('Blob upload failed:', err);
+    }
+  }
+
+  // No serverless sem Blob, /tmp é efêmero — guarda data URL no banco
+  if (isServerless) {
+    if (buffer.length > 1.5 * 1024 * 1024) {
+      return res.status(413).json({
+        error: 'Imagem muito grande. Use JPG/PNG menor (máx. ~1.5MB após compressão).',
+      });
+    }
+    return res.json({ url: `data:${mime};base64,${buffer.toString('base64')}` });
+  }
+
   res.json({ url: `/uploads/${req.file.filename}` });
 });
 

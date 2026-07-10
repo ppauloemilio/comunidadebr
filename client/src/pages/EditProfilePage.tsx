@@ -218,18 +218,21 @@ export function EditProfilePage() {
   }, []);
 
   const persistPhoto = async (field: 'avatar_url' | 'cover_url', url: string) => {
-    const updated = await api<{ avatar_url: string | null; cover_url: string }>('/users/me/profile', {
+    await api('/users/me/profile', {
       method: 'PATCH',
       body: JSON.stringify({ [field]: url }),
     });
-    setForm((f) => ({
-      ...f,
-      avatar_url: updated.avatar_url,
-      cover_url: updated.cover_url ?? f.cover_url,
-    }));
-    refreshUser();
+    setForm((f) => ({ ...f, [field]: url }));
+    qc.setQueryData<MeData>(['me-edit'], (old) => {
+      if (!old) return old;
+      if (field === 'avatar_url') return { ...old, avatar_url: url };
+      return {
+        ...old,
+        profile: { ...old.profile, cover_url: url },
+      };
+    });
+    await refreshUser();
     qc.invalidateQueries({ queryKey: ['profile', user?.id] });
-    qc.invalidateQueries({ queryKey: ['me-edit'] });
   };
 
   const handleUpload = async (file: File, field: 'avatar_url' | 'cover_url') => {

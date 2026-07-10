@@ -8,7 +8,14 @@ export function apiUrl(path: string) {
 
 export function mediaUrl(path: string | null | undefined) {
   if (!path) return '';
-  if (path.startsWith('http://') || path.startsWith('https://')) return path;
+  if (
+    path.startsWith('http://') ||
+    path.startsWith('https://') ||
+    path.startsWith('data:') ||
+    path.startsWith('blob:')
+  ) {
+    return path;
+  }
   return `${API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
 }
 

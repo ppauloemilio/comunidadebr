@@ -2,16 +2,18 @@ import { ReactNode, useEffect, useState } from 'react';
 import { Camera, Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
+import { mediaUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 function CoverImage({ src, alt }: { src: string; alt: string }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
+  const resolved = mediaUrl(src);
 
   useEffect(() => {
     setLoaded(false);
     setFailed(false);
-  }, [src]);
+  }, [resolved]);
 
   return (
     <>
@@ -19,7 +21,7 @@ function CoverImage({ src, alt }: { src: string; alt: string }) {
         <div className="absolute inset-0 animate-pulse bg-brand-400/40" />
       )}
       <img
-        src={src}
+        src={resolved}
         alt={alt}
         onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
