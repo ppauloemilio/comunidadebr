@@ -2,16 +2,19 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, ImagePlus, MapPin, X } from 'lucide-react';
-import { api, uploadFile, mediaUrl } from '@/lib/api';
+import { ArrowLeft, MapPin } from 'lucide-react';
+import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { PostFormatToolbar } from '@/components/post/PostFormatToolbar';
+import { PostImageManager } from '@/components/post/PostImageManager';
 import { FormattedText } from '@/lib/formatPostText';
+import type { PostImage } from '@/lib/postImages';
 import { useCountryNameMap } from '@/components/explore/ExploreGeoFilters';
 import { COUNTRY_LABELS } from '@/lib/utils';
+
 type PostTypeOption = 'text' | 'job' | 'event';
 
 type MeData = {
@@ -37,14 +40,12 @@ export function CreatePostPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const countryNames = useCountryNameMap();
-  const fileRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [searchParams] = useSearchParams();
 
   const [content, setContent] = useState('');
   const [postType, setPostType] = useState<PostTypeOption>('text');
-  const [images, setImages] = useState<string[]>([]);
-  const [uploading, setUploading] = useState(false);
+  const [images, setImages] = useState<PostImage[]>([]);
 
   useEffect(() => {
     const param = searchParams.get('type');
@@ -70,19 +71,6 @@ export function CreatePostPage() {
       navigate('/feed');
     },
   });
-
-  const handleImagePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const { url } = await uploadFile(file);
-      setImages((prev) => [...prev, url]);
-    } finally {
-      setUploading(false);
-      if (fileRef.current) fileRef.current.value = '';
-    }
-  };
 
   const displayName = me?.full_name || user?.full_name || '';
   const country = me?.profile?.current_country || '';
@@ -158,44 +146,14 @@ export function CreatePostPage() {
               </div>
             )}
           </div>
-          {images.length > 0 && (
-            <div className="flex flex-wrap gap-2">
-              {images.map((url) => (
-                <div key={url} className="relative h-24 w-24 overflow-hidden rounded-lg border border-slate-200">
-                  <img src={mediaUrl(url)} alt="" className="h-full w-full object-cover" />
-                  <button
-                    type="button"
-                    onClick={() => setImages((prev) => prev.filter((u) => u !== url))}
-                    className="absolute right-1 top-1 rounded-full bg-black/50 p-0.5 text-white"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
 
-          <div className="flex items-center justify-between border-t border-slate-100 pt-4">
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              disabled={uploading}
-              className="inline-flex items-center gap-2 text-sm font-medium text-slate-600 hover:text-brand-700 disabled:opacity-50"
-            >
-              <ImagePlus className="h-5 w-5" />
-              {uploading ? t('common.loading') : t('post.addPhoto')}
-            </button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept="image/*"
-              className="hidden"
-              onChange={handleImagePick}
-            />
+          <PostImageManager images={images} onChange={setImages} />
+
+          <div className="flex items-center justify-end border-t border-slate-100 pt-4">
             <Button
               className="rounded-lg px-6"
               onClick={() => mutation.mutate()}
-              disabled={!content.trim() || mutation.isPending || uploading}
+              disabled={!content.trim() || mutation.isPending}
             >
               {t('post.publish')}
             </Button>

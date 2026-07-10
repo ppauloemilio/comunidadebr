@@ -126,6 +126,12 @@
     "linkUrl": "Link URL",
     "preview": "Preview",
     "addPhoto": "Add photo",
+    "imageSize": "Size",
+    "imageSizeForNew": "Size for next photo:",
+    "imageSize_s": "S",
+    "imageSize_m": "M",
+    "imageSize_l": "L",
+    "imageSize_full": "Full",
     "publish": "Publish"
   },
   "business": {
