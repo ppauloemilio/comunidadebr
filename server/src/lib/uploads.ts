@@ -4,7 +4,9 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/** Diretório único de uploads — usado pelo multer e pelo express.static */
-export const uploadsDir = path.join(__dirname, '../uploads');
+/** Em Vercel o disco é efêmero — usa /tmp. Localmente usa server/src/uploads. */
+export const uploadsDir = process.env.VERCEL
+  ? path.join('/tmp', 'comunidade-uploads')
+  : path.join(__dirname, '../uploads');
 
 fs.mkdirSync(uploadsDir, { recursive: true });

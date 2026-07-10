@@ -1,6 +1,0 @@
-{
-  "installCommand": "sh -c 'if [ -d client ]; then npm install --include=dev --workspace=client --workspace=server --include-workspace-root; else cd .. && npm install --include=dev --workspace=client --workspace=server --include-workspace-root; fi'",
-  "buildCommand": "sh -c 'if [ -d client ]; then npm exec -w client -- vite build && rm -rf dist && cp -r client/dist dist; else node ../node_modules/vite/bin/vite.js build; fi'",
-  "outputDirectory": "dist",
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
-}

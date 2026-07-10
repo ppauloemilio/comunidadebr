@@ -56,12 +56,25 @@ export function MessagesPage() {
   useEffect(() => {
     if (!activeId) return;
     const socketBase = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/\/$/, '');
-    const socket = io(socketBase, { path: '/socket.io' });
-    socket.emit('join_conversation', activeId);
-    socket.on('new_message', () => {
-      qc.invalidateQueries({ queryKey: ['messages', activeId] });
-    });
-    return () => { socket.disconnect(); };
+    let socket: ReturnType<typeof io> | null = null;
+    try {
+      socket = io(socketBase, {
+        path: '/socket.io',
+        transports: ['websocket', 'polling'],
+        reconnection: false,
+        timeout: 3000,
+      });
+      socket.on('connect_error', () => {
+        socket?.disconnect();
+      });
+      socket.emit('join_conversation', activeId);
+      socket.on('new_message', () => {
+        qc.invalidateQueries({ queryKey: ['messages', activeId] });
+      });
+    } catch {
+      /* Vercel serverless não tem Socket.io — mensagens seguem via REST */
+    }
+    return () => { socket?.disconnect(); };
   }, [activeId, qc]);
 
   useEffect(() => {
