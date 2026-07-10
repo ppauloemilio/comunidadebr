@@ -18,42 +18,49 @@ import adminRoutes from './routes/admin.js';
 
 const PORT = Number(process.env.PORT) || 3001;
 
-getDb();
-expireStaleAdvertisements(getDb());
+async function start() {
+  const db = await getDb();
+  await expireStaleAdvertisements(db);
 
-const app = express();
-const httpServer = createServer(app);
-const io = new Server(httpServer, { cors: { origin: '*' } });
+  const app = express();
+  const httpServer = createServer(app);
+  const io = new Server(httpServer, { cors: { origin: '*' } });
 
-setSocketIO(io);
+  setSocketIO(io);
 
-app.use(cors());
-app.use(express.json());
-app.use('/uploads', express.static(uploadsDir));
+  app.use(cors());
+  app.use(express.json());
+  app.use('/uploads', express.static(uploadsDir));
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, service: 'comunidade-br-api' });
-});
-
-app.use('/api/auth', authRoutes);
-app.use('/api/posts', postsRoutes);
-app.use('/api/users', usersRoutes);
-app.use('/api/businesses', businessesRoutes);
-app.use('/api/social', socialRoutes);
-app.use('/api/conversations', messagesRoutes);
-app.use('/api/geo', geoRoutes);
-app.use('/api/community', communityRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api', miscRoutes);
-
-io.on('connection', (socket) => {
-  socket.on('join_conversation', (conversationId: string) => {
-    socket.join(conversationId);
+  app.get('/api/health', (_req, res) => {
+    res.json({ ok: true, service: 'comunidade-br-api' });
   });
-});
 
-httpServer.listen(PORT, () => {
-  console.log(`🚀 API Comunidade Brasil rodando em http://localhost:${PORT}`);
-  console.log(`📦 Banco SQLite criado automaticamente`);
-  console.log(`👤 Demo: ana@demo.com / demo123`);
+  app.use('/api/auth', authRoutes);
+  app.use('/api/posts', postsRoutes);
+  app.use('/api/users', usersRoutes);
+  app.use('/api/businesses', businessesRoutes);
+  app.use('/api/social', socialRoutes);
+  app.use('/api/conversations', messagesRoutes);
+  app.use('/api/geo', geoRoutes);
+  app.use('/api/community', communityRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api', miscRoutes);
+
+  io.on('connection', (socket) => {
+    socket.on('join_conversation', (conversationId: string) => {
+      socket.join(conversationId);
+    });
+  });
+
+  httpServer.listen(PORT, () => {
+    console.log(`🚀 API Comunidade Brasil rodando em http://localhost:${PORT}`);
+    console.log(`📦 Banco Postgres/Neon conectado`);
+    console.log(`👤 Demo: ana@demo.com / demo123`);
+  });
+}
+
+start().catch((err) => {
+  console.error('Falha ao iniciar API:', err);
+  process.exit(1);
 });

@@ -16,12 +16,12 @@ function exploreType(req: { query: Record<string, unknown> }): 'people' | 'busin
 }
 
 /** Países com pessoas ou negócios cadastrados (exceto Brasil) — filtros do Explorar */
-router.get('/used-countries', authMiddleware, (req, res) => {
-  const db = getDb();
+router.get('/used-countries', authMiddleware, async (req, res) => {
+  const db = await getDb();
   const type = exploreType(req);
 
   const rows = type === 'businesses'
-    ? db.prepare(
+    ? await db.prepare(
         `SELECT DISTINCT UPPER(TRIM(country)) AS country_code
          FROM businesses
          WHERE is_active = 1
@@ -30,7 +30,7 @@ router.get('/used-countries', authMiddleware, (req, res) => {
            AND UPPER(TRIM(country)) != ?
          ORDER BY country_code`
       ).all(EXCLUDED_COUNTRY) as Array<{ country_code: string }>
-    : db.prepare(
+    : await db.prepare(
         `SELECT DISTINCT UPPER(TRIM(current_country)) AS country_code
          FROM public_profiles
          WHERE current_country IS NOT NULL
@@ -47,16 +47,16 @@ router.get('/used-countries', authMiddleware, (req, res) => {
 });
 
 /** Estados/regiões com cadastros no país selecionado */
-router.get('/used-states', authMiddleware, (req, res) => {
+router.get('/used-states', authMiddleware, async (req, res) => {
   const country = String(req.query.country || '').toUpperCase();
   if (!country) return res.status(400).json({ error: 'País obrigatório' });
   if (country === EXCLUDED_COUNTRY) return res.json([]);
 
-  const db = getDb();
+  const db = await getDb();
   const type = exploreType(req);
 
   const rows = type === 'businesses'
-    ? db.prepare(
+    ? await db.prepare(
         `SELECT DISTINCT TRIM(state) AS name
          FROM businesses
          WHERE is_active = 1
@@ -65,7 +65,7 @@ router.get('/used-states', authMiddleware, (req, res) => {
            AND TRIM(state) != ''
          ORDER BY name COLLATE NOCASE`
       ).all(country) as Array<{ name: string }>
-    : db.prepare(
+    : await db.prepare(
         `SELECT DISTINCT TRIM(current_state) AS name
          FROM public_profiles
          WHERE UPPER(TRIM(current_country)) = ?
@@ -78,17 +78,17 @@ router.get('/used-states', authMiddleware, (req, res) => {
 });
 
 /** Cidades com cadastros no estado/região selecionado */
-router.get('/used-cities', authMiddleware, (req, res) => {
+router.get('/used-cities', authMiddleware, async (req, res) => {
   const country = String(req.query.country || '').toUpperCase();
   const state = String(req.query.state || '').trim();
   if (!country || !state) return res.status(400).json({ error: 'País e estado obrigatórios' });
   if (country === EXCLUDED_COUNTRY) return res.json([]);
 
-  const db = getDb();
+  const db = await getDb();
   const type = exploreType(req);
 
   const rows = type === 'businesses'
-    ? db.prepare(
+    ? await db.prepare(
         `SELECT DISTINCT TRIM(city) AS name
          FROM businesses
          WHERE is_active = 1
@@ -98,7 +98,7 @@ router.get('/used-cities', authMiddleware, (req, res) => {
            AND TRIM(city) != ''
          ORDER BY name COLLATE NOCASE`
       ).all(country, state) as Array<{ name: string }>
-    : db.prepare(
+    : await db.prepare(
         `SELECT DISTINCT TRIM(current_city) AS name
          FROM public_profiles
          WHERE UPPER(TRIM(current_country)) = ?
@@ -112,11 +112,11 @@ router.get('/used-cities', authMiddleware, (req, res) => {
 });
 
 /** Categorias com negócios cadastrados (exceto Brasil) */
-router.get('/used-categories', authMiddleware, (req, res) => {
+router.get('/used-categories', authMiddleware, async (req, res) => {
   if (exploreType(req) !== 'businesses') return res.json([]);
 
-  const db = getDb();
-  const rows = db.prepare(
+  const db = await getDb();
+  const rows = await db.prepare(
     `SELECT DISTINCT TRIM(category) AS code
      FROM businesses
      WHERE is_active = 1
@@ -136,7 +136,7 @@ router.get('/countries', authMiddleware, (_req, res) => {
   res.json(countries);
 });
 
-router.get('/states', authMiddleware, (req, res) => {
+router.get('/states', authMiddleware, async (req, res) => {
   const country = String(req.query.country || '').toUpperCase();
   if (!country) return res.status(400).json({ error: 'País obrigatório' });
 
@@ -148,7 +148,7 @@ router.get('/states', authMiddleware, (req, res) => {
   res.json(states);
 });
 
-router.get('/cities', authMiddleware, (req, res) => {
+router.get('/cities', authMiddleware, async (req, res) => {
   const country = String(req.query.country || '').toUpperCase();
   const state = String(req.query.state || '');
   if (!country || !state) return res.status(400).json({ error: 'País e estado obrigatórios' });
@@ -166,7 +166,7 @@ router.get('/cities', authMiddleware, (req, res) => {
 });
 
 /** Resolve nomes salvos no perfil para códigos ISO (preencher formulário) */
-router.get('/resolve', authMiddleware, (req, res) => {
+router.get('/resolve', authMiddleware, async (req, res) => {
   const country = String(req.query.country || '').toUpperCase();
   const stateName = String(req.query.stateName || '');
   const cityName = String(req.query.cityName || '');

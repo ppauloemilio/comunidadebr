@@ -1,12 +1,12 @@
-import type { DatabaseSync } from 'node:sqlite';
 import { v4 as uuid } from 'uuid';
+import type { Db } from '../db/database.js';
 import { EXAMPLE_FEED_BANNER, EXAMPLE_SIDEBAR_BANNER } from './exampleSponsoredAd.js';
 import { setMonetizationSettings } from './settings.js';
 
 const DEMO_FLAG = 'monetization_examples_v3';
 
-function insertBanner(
-  db: DatabaseSync,
+async function insertBanner(
+  db: Db,
   data: {
     placement: 'feed' | 'sidebar';
     business_id: string;
@@ -18,15 +18,15 @@ function insertBanner(
     daysValid: number;
   }
 ) {
-  const existing = db.prepare(
+  const existing = (await db.prepare(
     `SELECT id FROM advertisements
      WHERE business_id = ? AND placement = ? AND is_active = 1 LIMIT 1`
-  ).get(data.business_id, data.placement) as { id: string } | undefined;
+  ).get(data.business_id, data.placement)) as { id: string } | undefined;
 
   const endDate = new Date(Date.now() + data.daysValid * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   if (existing) {
-    db.prepare(
+    await db.prepare(
       `UPDATE advertisements SET
        title = ?, image_url = ?, description = ?, user_id = ?, business_id = ?,
        link_url = '/business-map', is_active = 1, end_date = ?, source_type = 'user'
@@ -44,7 +44,7 @@ function insertBanner(
   }
 
   const id = uuid();
-  db.prepare(
+  await db.prepare(
     `INSERT INTO advertisements (
       id, title, image_url, link_url, description, is_active, order_num,
       placement, source_type, user_id, business_id, end_date
@@ -63,8 +63,8 @@ function insertBanner(
   return id;
 }
 
-export function applyMonetizationExamples(db: DatabaseSync) {
-  setMonetizationSettings({
+export async function applyMonetizationExamples(db: Db) {
+  await setMonetizationSettings({
     ads_enabled: true,
     featured_business_enabled: true,
     paid_posts_enabled: true,
@@ -72,13 +72,13 @@ export function applyMonetizationExamples(db: DatabaseSync) {
     banner_rotation_seconds: 30,
   });
 
-  db.prepare(
+  await db.prepare(
     `UPDATE businesses
      SET is_featured = 1, featured_order = 0, featured_until = datetime('now', '+1 year')
      WHERE name = 'Sabor do Brasil'`
   ).run();
 
-  db.prepare(
+  await db.prepare(
     `UPDATE posts
      SET is_promoted = 1, promoted_until = datetime('now', '+1 year')
      WHERE type = 'business_promo' OR content LIKE '%Promoção especial%'`
@@ -86,11 +86,11 @@ export function applyMonetizationExamples(db: DatabaseSync) {
 
   const premiumUsernames = ['ana_silva', 'beatriz_paes'];
   for (const username of premiumUsernames) {
-    const premiumUser = db.prepare('SELECT id FROM users WHERE username = ?').get(username) as
+    const premiumUser = (await db.prepare('SELECT id FROM users WHERE username = ?').get(username)) as
       | { id: string }
       | undefined;
     if (premiumUser) {
-      db.prepare(
+      await db.prepare(
         `UPDATE public_profiles
          SET is_premium = 1, premium_until = datetime('now', '+1 year')
          WHERE user_id = ?`
@@ -98,14 +98,14 @@ export function applyMonetizationExamples(db: DatabaseSync) {
     }
   }
 
-  const sabor = db.prepare(
+  const sabor = (await db.prepare(
     `SELECT b.id AS business_id, b.name, b.owner_id, u.full_name
      FROM businesses b JOIN users u ON u.id = b.owner_id
      WHERE b.name = 'Sabor do Brasil' LIMIT 1`
-  ).get() as { business_id: string; name: string; owner_id: string; full_name: string } | undefined;
+  ).get()) as { business_id: string; name: string; owner_id: string; full_name: string } | undefined;
 
   if (sabor) {
-    insertBanner(db, {
+    await insertBanner(db, {
       placement: 'feed',
       business_id: sabor.business_id,
       user_id: sabor.owner_id,
@@ -116,7 +116,7 @@ export function applyMonetizationExamples(db: DatabaseSync) {
       daysValid: EXAMPLE_FEED_BANNER.daysValid,
     });
 
-    insertBanner(db, {
+    await insertBanner(db, {
       placement: 'sidebar',
       business_id: sabor.business_id,
       user_id: sabor.owner_id,
@@ -129,13 +129,13 @@ export function applyMonetizationExamples(db: DatabaseSync) {
   }
 }
 
-export function seedMonetizationExamples(db: DatabaseSync) {
-  const done = db.prepare('SELECT key FROM app_settings WHERE key = ?').get(DEMO_FLAG);
+export async function seedMonetizationExamples(db: Db) {
+  const done = await db.prepare('SELECT key FROM app_settings WHERE key = ?').get(DEMO_FLAG);
   if (done) return;
 
-  applyMonetizationExamples(db);
+  await applyMonetizationExamples(db);
 
-  db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)').run(DEMO_FLAG, '1');
+  await db.prepare('INSERT INTO app_settings (key, value) VALUES (?, ?)').run(DEMO_FLAG, '1');
 
   console.log('✅ Exemplos de monetização aplicados (banners rotativos por negócio)');
 }

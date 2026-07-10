@@ -1,28 +1,28 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
-import { getDb, parseJson, userSnapshot, UserRow } from '../db/database.js';
+import { getDb, parseJson, userSnapshot, UserRow, type Db } from '../db/database.js';
 import { authMiddleware, AuthRequest, createNotification } from '../middleware/auth.js';
 
 import { getMonetizationSettings, isPremiumProfile } from '../lib/settings.js';
 
 const router = Router();
 
-function authorPremiumMap(db: ReturnType<typeof getDb>, authorIds: string[]) {
+async function authorPremiumMap(db: Db, authorIds: string[]) {
   const unique = [...new Set(authorIds)];
   const map = new Map<string, boolean>();
   if (!unique.length) return map;
   const placeholders = unique.map(() => '?').join(',');
-  const rows = db.prepare(
+  const rows = (await db.prepare(
     `SELECT user_id, is_premium, premium_until FROM public_profiles WHERE user_id IN (${placeholders})`
-  ).all(...unique) as Array<{ user_id: string; is_premium: number; premium_until: string | null }>;
+  ).all(...unique)) as Array<{ user_id: string; is_premium: number; premium_until: string | null }>;
   for (const row of rows) {
-    map.set(row.user_id, isPremiumProfile(row));
+    map.set(row.user_id, await isPremiumProfile(row));
   }
   return map;
 }
 
-function formatPost(row: Record<string, unknown>, likedByMe = false, authorIsPremium = false) {
-  const settings = getMonetizationSettings();
+async function formatPost(row: Record<string, unknown>, likedByMe = false, authorIsPremium = false) {
+  const settings = await getMonetizationSettings();
   const promotedInDb = !!(row.is_promoted && (
     !row.promoted_until || new Date(row.promoted_until as string) >= new Date()
   ));
@@ -46,20 +46,20 @@ function formatPost(row: Record<string, unknown>, likedByMe = false, authorIsPre
   };
 }
 
-router.get('/', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const profile = db.prepare('SELECT current_country FROM public_profiles WHERE user_id = ?').get(req.user!.id) as
+router.get('/', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const profile = (await db.prepare('SELECT current_country FROM public_profiles WHERE user_id = ?').get(req.user!.id)) as
     | { current_country: string }
     | undefined;
   const country = profile?.current_country || 'BR';
 
-  const history = db.prepare(
+  const history = (await db.prepare(
     'SELECT joined_at FROM user_country_history WHERE user_id = ? AND country = ?'
-  ).get(req.user!.id, country) as { joined_at: string } | undefined;
+  ).get(req.user!.id, country)) as { joined_at: string } | undefined;
 
   let posts;
   if (history) {
-    posts = db.prepare(
+    posts = await db.prepare(
       `SELECT * FROM posts WHERE is_active = 1 AND country = ? AND created_at >= ?
        ORDER BY
          CASE WHEN is_promoted = 1 AND (promoted_until IS NULL OR promoted_until >= datetime('now')) THEN 0 ELSE 1 END,
@@ -67,7 +67,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
        LIMIT 50`
     ).all(country, history.joined_at);
   } else {
-    posts = db.prepare(
+    posts = await db.prepare(
       `SELECT * FROM posts WHERE is_active = 1 AND country = ?
        ORDER BY
          CASE WHEN is_promoted = 1 AND (promoted_until IS NULL OR promoted_until >= datetime('now')) THEN 0 ELSE 1 END,
@@ -76,35 +76,37 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
     ).all(country);
   }
 
-  const likes = db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id) as { post_id: string }[];
+  const likes = (await db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id)) as { post_id: string }[];
   const likedSet = new Set(likes.map((l) => l.post_id));
 
-  const premiumByAuthor = authorPremiumMap(
+  const premiumByAuthor = await authorPremiumMap(
     db,
     posts.map((p) => p.author_id as string)
   );
 
   res.json(
-    posts.map((p) => formatPost(
-      p as Record<string, unknown>,
-      likedSet.has(p.id as string),
-      premiumByAuthor.get(p.author_id as string) ?? false
-    ))
+    await Promise.all(
+      posts.map((p) => formatPost(
+        p as Record<string, unknown>,
+        likedSet.has(p.id as string),
+        premiumByAuthor.get(p.author_id as string) ?? false
+      ))
+    )
   );
 });
 
-router.post('/', authMiddleware, (req: AuthRequest, res) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   const { content, type = 'text', images = [], business_id } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Conteúdo obrigatório' });
 
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as UserRow;
-  const profile = db.prepare('SELECT current_country, current_city FROM public_profiles WHERE user_id = ?').get(user.id) as
+  const db = await getDb();
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
+  const profile = (await db.prepare('SELECT current_country, current_city FROM public_profiles WHERE user_id = ?').get(user.id)) as
     | { current_country: string; current_city: string }
     | undefined;
 
   const id = uuid();
-  db.prepare(
+  await db.prepare(
     `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -122,56 +124,55 @@ router.post('/', authMiddleware, (req: AuthRequest, res) => {
     })
   );
 
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
-  const premium = authorPremiumMap(db, [user.id]).get(user.id) ?? false;
-  res.status(201).json(formatPost(post as Record<string, unknown>, false, premium));
+  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
+  const premium = (await authorPremiumMap(db, [user.id])).get(user.id) ?? false;
+  res.status(201).json(await formatPost(post as Record<string, unknown>, false, premium));
 });
 
-router.delete('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id) as { author_id: string } | undefined;
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)) as { author_id: string } | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
   if (post.author_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
-  db.prepare('UPDATE posts SET is_active = 0 WHERE id = ?').run(req.params.id);
+  await db.prepare('UPDATE posts SET is_active = 0 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 
-router.post('/:id/like', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const post = db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id) as
+router.post('/:id/like', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
     | { id: string; author_id: string; likes_count: number }
     | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
-  const existing = db.prepare('SELECT id FROM likes WHERE post_id = ? AND user_id = ?').get(post.id, req.user!.id);
+  const existing = await db.prepare('SELECT id FROM likes WHERE post_id = ? AND user_id = ?').get(post.id, req.user!.id);
   if (existing) return res.status(409).json({ error: 'Já curtido' });
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as UserRow;
-  db.prepare('INSERT INTO likes (id, post_id, user_id, user_snapshot) VALUES (?, ?, ?, ?)').run(
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
+  await db.prepare('INSERT INTO likes (id, post_id, user_id, user_snapshot) VALUES (?, ?, ?, ?)').run(
     uuid(), post.id, user.id, userSnapshot(user)
   );
-  db.prepare('UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?').run(post.id);
-  createNotification(post.author_id, user.id, 'like', 'post', post.id);
+  await db.prepare('UPDATE posts SET likes_count = likes_count + 1 WHERE id = ?').run(post.id);
+  await createNotification(post.author_id, user.id, 'like', 'post', post.id);
   res.json({ ok: true, likes_count: post.likes_count + 1 });
 });
 
-router.delete('/:id/like', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id) as { likes_count: number } | undefined;
+router.delete('/:id/like', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id)) as { likes_count: number } | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
-  const stmt = db.prepare('DELETE FROM likes WHERE post_id = ? AND user_id = ?');
-  stmt.run(req.params.id, req.user!.id);
-  if (stmt.changes > 0) {
-    db.prepare('UPDATE posts SET likes_count = CASE WHEN likes_count > 0 THEN likes_count - 1 ELSE 0 END WHERE id = ?').run(req.params.id);
+  const result = await db.prepare('DELETE FROM likes WHERE post_id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+  if (result.changes > 0) {
+    await db.prepare('UPDATE posts SET likes_count = CASE WHEN likes_count > 0 THEN likes_count - 1 ELSE 0 END WHERE id = ?').run(req.params.id);
   }
-  const updated = db.prepare('SELECT likes_count FROM posts WHERE id = ?').get(req.params.id) as { likes_count: number };
+  const updated = (await db.prepare('SELECT likes_count FROM posts WHERE id = ?').get(req.params.id)) as { likes_count: number };
   res.json({ ok: true, likes_count: updated.likes_count });
 });
 
-router.get('/:id/comments', authMiddleware, (req, res) => {
-  const db = getDb();
-  const comments = db.prepare(
+router.get('/:id/comments', authMiddleware, async (req, res) => {
+  const db = await getDb();
+  const comments = await db.prepare(
     'SELECT * FROM comments WHERE post_id = ? AND is_active = 1 ORDER BY created_at ASC'
   ).all(req.params.id);
   res.json(
@@ -182,41 +183,42 @@ router.get('/:id/comments', authMiddleware, (req, res) => {
   );
 });
 
-router.post('/:id/comments', authMiddleware, (req: AuthRequest, res) => {
+router.post('/:id/comments', authMiddleware, async (req: AuthRequest, res) => {
   const { content } = req.body;
   if (!content?.trim()) return res.status(400).json({ error: 'Comentário vazio' });
 
-  const db = getDb();
-  const post = db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id) as
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
     | { id: string; author_id: string }
     | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id) as UserRow;
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
   const id = uuid();
-  db.prepare(
+  await db.prepare(
     'INSERT INTO comments (id, post_id, author_id, content, author_snapshot) VALUES (?, ?, ?, ?, ?)'
   ).run(id, post.id, user.id, content.trim(), userSnapshot(user));
-  db.prepare('UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?').run(post.id);
-  createNotification(post.author_id, user.id, 'comment', 'post', post.id);
+  await db.prepare('UPDATE posts SET comments_count = comments_count + 1 WHERE id = ?').run(post.id);
+  await createNotification(post.author_id, user.id, 'comment', 'post', post.id);
 
-  const comment = db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
+  const comment = await db.prepare('SELECT * FROM comments WHERE id = ?').get(id);
   res.status(201).json({
     ...comment,
     author_snapshot: parseJson((comment as { author_snapshot: string }).author_snapshot, {}),
   });
 });
 
-router.post('/:id/share', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const post = db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+router.post('/:id/share', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
   const id = uuid();
-  db.prepare('INSERT INTO shares (id, post_id, user_id, post_snapshot) VALUES (?, ?, ?, ?)').run(
+  await db.prepare('INSERT INTO shares (id, post_id, user_id, post_snapshot) VALUES (?, ?, ?, ?)').run(
     id, req.params.id, req.user!.id, JSON.stringify(post)
   );
-  createNotification((post as { author_id: string }).author_id, req.user!.id, 'share', 'post', req.params.id);
+  const postId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  await createNotification((post as { author_id: string }).author_id, req.user!.id, 'share', 'post', postId);
   res.status(201).json({ ok: true });
 });
 

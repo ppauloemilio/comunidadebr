@@ -16,34 +16,39 @@ const upload = multer({ storage, limits: { fileSize: 5 * 1024 * 1024 } });
 
 const router = Router();
 
-router.get('/settings/public', (_req, res) => {
-  res.json(getMonetizationSettings());
+router.get('/settings/public', async (_req, res) => {
+  res.json(await getMonetizationSettings());
 });
 
-router.get('/countries', (_req, res) => {
-  const countries = getDb().prepare('SELECT * FROM countries WHERE is_active = 1 ORDER BY name').all();
+router.get('/countries', async (_req, res) => {
+  const db = await getDb();
+  const countries = await db.prepare('SELECT * FROM countries WHERE is_active = 1 ORDER BY name').all();
   res.json(countries);
 });
 
-router.get('/skills', (_req, res) => {
-  const skills = getDb().prepare('SELECT * FROM skills ORDER BY name').all();
+router.get('/skills', async (_req, res) => {
+  const db = await getDb();
+  const skills = await db.prepare('SELECT * FROM skills ORDER BY name').all();
   res.json(skills);
 });
 
-router.get('/advertisements', (req, res) => {
-  const settings = getMonetizationSettings();
+router.get('/advertisements', async (req, res) => {
+  const settings = await getMonetizationSettings();
   if (!settings.ads_enabled) return res.json([]);
 
   const placement = req.query.placement as string | undefined;
   if (placement === 'feed' || placement === 'sidebar') {
-    return res.json(getActiveAdvertisements(placement));
+    return res.json(await getActiveAdvertisements(placement));
   }
 
-  return res.json([...getActiveAdvertisements('feed'), ...getActiveAdvertisements('sidebar')]);
+  return res.json([
+    ...(await getActiveAdvertisements('feed')),
+    ...(await getActiveAdvertisements('sidebar')),
+  ]);
 });
 
-router.get('/explore', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/explore', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
   const type = (req.query.type as string) || 'people';
   const q = (req.query.q as string)?.trim();
   const country = (req.query.country as string)?.trim();
@@ -76,7 +81,7 @@ router.get('/explore', authMiddleware, (req: AuthRequest, res) => {
       params.push(`%${q}%`, `%${q}%`, `%${q}%`);
     }
 
-    const businesses = db.prepare(
+    const businesses = await db.prepare(
       `SELECT b.*, u.full_name as owner_name, u.username as owner_username
        FROM businesses b
        JOIN users u ON u.id = b.owner_id
@@ -122,7 +127,7 @@ router.get('/explore', authMiddleware, (req: AuthRequest, res) => {
     params.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
   }
 
-  const users = db.prepare(
+  const users = await db.prepare(
     `SELECT u.id, u.username, u.full_name, u.avatar_url,
             p.bio, p.current_country, p.current_city, p.current_state,
             p.primary_skill, p.show_city_on_profile, p.is_premium, p.premium_until
@@ -135,49 +140,51 @@ router.get('/explore', authMiddleware, (req: AuthRequest, res) => {
      LIMIT 50`
   ).all(...params);
 
-  const mappedUsers = (users as Array<Record<string, unknown>>).map((u) => ({
-    ...u,
-    is_premium: isPremiumProfile(u as { is_premium?: number; premium_until?: string | null }),
-  }));
+  const mappedUsers = await Promise.all(
+    (users as Array<Record<string, unknown>>).map(async (u) => ({
+      ...u,
+      is_premium: await isPremiumProfile(u as { is_premium?: number; premium_until?: string | null }),
+    }))
+  );
 
   res.json({ users: mappedUsers, businesses: [] });
 });
 
-router.get('/search', authMiddleware, (req: AuthRequest, res) => {
+router.get('/search', authMiddleware, async (req: AuthRequest, res) => {
   const q = (req.query.q as string)?.trim();
   if (!q) return res.json({ businesses: [], users: [], posts: [] });
 
-  const db = getDb();
-  const businesses = db.prepare(
+  const db = await getDb();
+  const businesses = await db.prepare(
     `SELECT id, name, category, address FROM businesses WHERE is_active = 1
      AND (name LIKE ? OR category LIKE ? OR address LIKE ?) LIMIT 10`
   ).all(`%${q}%`, `%${q}%`, `%${q}%`);
 
-  const users = db.prepare(
+  const users = await db.prepare(
     `SELECT u.id, u.full_name, u.username FROM users u
      WHERE u.full_name LIKE ? OR u.username LIKE ? LIMIT 10`
   ).all(`%${q}%`, `%${q}%`);
 
-  const posts = db.prepare(
+  const posts = await db.prepare(
     `SELECT id, content FROM posts WHERE is_active = 1 AND content LIKE ? LIMIT 10`
   ).all(`%${q}%`);
 
   res.json({ businesses, users, posts });
 });
 
-router.get('/feed/sidebar', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const profile = db.prepare('SELECT current_country FROM public_profiles WHERE user_id = ?').get(req.user!.id) as
+router.get('/feed/sidebar', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const profile = (await db.prepare('SELECT current_country FROM public_profiles WHERE user_id = ?').get(req.user!.id)) as
     | { current_country: string }
     | undefined;
   const country = profile?.current_country || 'BR';
 
-  const trending = db.prepare(
+  const trending = await db.prepare(
     `SELECT id, content, likes_count FROM posts WHERE is_active = 1 AND country = ?
      ORDER BY likes_count DESC LIMIT 5`
   ).all(country);
 
-  const users = db.prepare(
+  const users = await db.prepare(
     `SELECT u.id, u.username, u.full_name, u.avatar_url, p.current_country,
             b.address as address
      FROM users u
@@ -191,7 +198,7 @@ router.get('/feed/sidebar', authMiddleware, (req: AuthRequest, res) => {
   res.json({ trending, users, country });
 });
 
-router.post('/upload', authMiddleware, upload.single('file'), (req, res) => {
+router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
   res.json({ url: `/uploads/${req.file.filename}` });
 });

@@ -16,8 +16,8 @@ function mapBusinessRow(b: Record<string, unknown>) {
   };
 }
 
-router.get('/', authMiddleware, (req, res) => {
-  const db = getDb();
+router.get('/', authMiddleware, async (req, res) => {
+  const db = await getDb();
   const country = (req.query.country as string)?.trim();
   const category = (req.query.category as string)?.trim();
   const state = (req.query.state as string)?.trim();
@@ -48,7 +48,7 @@ router.get('/', authMiddleware, (req, res) => {
     params.push(`%${q}%`, `%${q}%`, `%${q}%`);
   }
 
-  const businesses = db.prepare(
+  const businesses = await db.prepare(
     `SELECT * FROM businesses WHERE ${conditions.join(' AND ')}
      ORDER BY
        CASE WHEN is_featured = 1 AND (featured_until IS NULL OR featured_until >= datetime('now')) THEN 0 ELSE 1 END,
@@ -60,9 +60,9 @@ router.get('/', authMiddleware, (req, res) => {
   res.json(businesses.map((b) => mapBusinessRow(b as Record<string, unknown>)));
 });
 
-router.get('/mine', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const businesses = db.prepare('SELECT * FROM businesses WHERE owner_id = ? ORDER BY created_at DESC').all(req.user!.id);
+router.get('/mine', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const businesses = await db.prepare('SELECT * FROM businesses WHERE owner_id = ? ORDER BY created_at DESC').all(req.user!.id);
   res.json(
     businesses.map((b) => ({
       ...b,
@@ -73,9 +73,9 @@ router.get('/mine', authMiddleware, (req: AuthRequest, res) => {
   );
 });
 
-router.get('/:id', authMiddleware, (req, res) => {
-  const db = getDb();
-  const row = db.prepare(
+router.get('/:id', authMiddleware, async (req, res) => {
+  const db = await getDb();
+  const row = await db.prepare(
     `SELECT b.*, u.full_name AS owner_name, u.username AS owner_username, u.avatar_url AS owner_avatar_url
      FROM businesses b
      JOIN users u ON u.id = b.owner_id
@@ -90,13 +90,13 @@ router.get('/:id', authMiddleware, (req, res) => {
   });
 });
 
-router.post('/', authMiddleware, (req: AuthRequest, res) => {
+router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   const { name, category, country, latitude, longitude, address, state, city, tagline, description, skills = [], photos = [], social_links = {} } = req.body;
   if (!name || !category || !country) return res.status(400).json({ error: 'Campos obrigatórios faltando' });
 
   const id = uuid();
-  const db = getDb();
-  db.prepare(
+  const db = await getDb();
+  await db.prepare(
     `INSERT INTO businesses (id, name, category, country, owner_id, latitude, longitude, address, state, city, tagline, description, skills, photos, social_links)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
@@ -106,7 +106,7 @@ router.post('/', authMiddleware, (req: AuthRequest, res) => {
     JSON.stringify(skills), JSON.stringify(photos), JSON.stringify(social_links)
   );
 
-  const business = db.prepare('SELECT * FROM businesses WHERE id = ?').get(id);
+  const business = await db.prepare('SELECT * FROM businesses WHERE id = ?').get(id);
   res.status(201).json({
     ...business,
     skills: parseJson((business as { skills: string }).skills, []),
@@ -115,14 +115,14 @@ router.post('/', authMiddleware, (req: AuthRequest, res) => {
   });
 });
 
-router.patch('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const business = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
+router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const business = await db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
   if (!business) return res.status(404).json({ error: 'Negócio não encontrado' });
   if (business.owner_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
 
   const { name, category, country, latitude, longitude, address, state, city, tagline, description, skills, photos, social_links, is_active } = req.body;
-  db.prepare(
+  await db.prepare(
     `UPDATE businesses SET
      name = COALESCE(?, name),
      category = COALESCE(?, category),
@@ -150,7 +150,7 @@ router.patch('/:id', authMiddleware, (req: AuthRequest, res) => {
     req.params.id
   );
 
-  const updated = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
+  const updated = await db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id);
   res.json({
     ...updated,
     skills: parseJson((updated as { skills: string }).skills, []),
@@ -159,12 +159,12 @@ router.patch('/:id', authMiddleware, (req: AuthRequest, res) => {
   });
 });
 
-router.delete('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const business = db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const business = await db.prepare('SELECT * FROM businesses WHERE id = ?').get(req.params.id) as { owner_id: string } | undefined;
   if (!business) return res.status(404).json({ error: 'Negócio não encontrado' });
   if (business.owner_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
-  db.prepare('UPDATE businesses SET is_active = 0 WHERE id = ?').run(req.params.id);
+  await db.prepare('UPDATE businesses SET is_active = 0 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
 });
 

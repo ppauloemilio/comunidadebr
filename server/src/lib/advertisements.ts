@@ -1,5 +1,4 @@
-import type { DatabaseSync } from 'node:sqlite';
-import { getDb } from '../db/database.js';
+import { getDb, type Db } from '../db/database.js';
 
 export type AdPlacement = 'feed' | 'sidebar';
 
@@ -44,25 +43,25 @@ const ACTIVE_WHERE = `is_active = 1
   AND (start_date IS NULL OR start_date <= date('now'))
   AND (end_date IS NULL OR end_date >= date('now'))`;
 
-export function expireStaleAdvertisements(db: DatabaseSync) {
-  db.prepare(
+export async function expireStaleAdvertisements(db: Db) {
+  await db.prepare(
     `UPDATE advertisements SET is_active = 0
      WHERE is_active = 1 AND end_date IS NOT NULL AND end_date < date('now')`
   ).run();
 }
 
-function resolveBusiness(db: DatabaseSync, businessId: string) {
-  return db.prepare(
+async function resolveBusiness(db: Db, businessId: string) {
+  return (await db.prepare(
     `SELECT b.id, b.name, b.owner_id, u.full_name, u.username
      FROM businesses b
      JOIN users u ON u.id = b.owner_id
      WHERE b.id = ? AND b.is_active = 1 AND COALESCE(u.is_active, 1) = 1`
-  ).get(businessId) as
+  ).get(businessId)) as
     | { id: string; name: string; owner_id: string; full_name: string; username: string }
     | undefined;
 }
 
-export function enrichAdvertisement(db: DatabaseSync, row: AdvertisementRow): AdvertisementClient {
+export async function enrichAdvertisement(db: Db, row: AdvertisementRow): Promise<AdvertisementClient> {
   const placement = (row.placement === 'sidebar' ? 'sidebar' : 'feed') as AdPlacement;
   const customImage = row.image_url?.trim();
   const expired = !!(row.end_date && new Date(row.end_date) < new Date(new Date().toISOString().slice(0, 10)));
@@ -74,7 +73,7 @@ export function enrichAdvertisement(db: DatabaseSync, row: AdvertisementRow): Ad
   let business_id = row.business_id || '';
 
   if (row.business_id) {
-    const biz = resolveBusiness(db, row.business_id);
+    const biz = await resolveBusiness(db, row.business_id);
     if (biz) {
       business_name = biz.name;
       user_name = biz.full_name;
@@ -104,38 +103,38 @@ export function enrichAdvertisement(db: DatabaseSync, row: AdvertisementRow): Ad
   };
 }
 
-export function assertBusinessBannerSlot(
-  db: DatabaseSync,
+export async function assertBusinessBannerSlot(
+  db: Db,
   businessId: string,
   placement: AdPlacement,
   exceptId?: string
-): { ok: true } | { error: string } {
+): Promise<{ ok: true } | { error: string }> {
   const params: string[] = [businessId, placement];
-  let sql = `SELECT COUNT(*) as c FROM advertisements
+  let sql = `SELECT COUNT(*)::int as c FROM advertisements
     WHERE business_id = ? AND placement = ? AND ${ACTIVE_WHERE}`;
   if (exceptId) {
     sql += ' AND id != ?';
     params.push(exceptId);
   }
-  const row = db.prepare(sql).get(...params) as { c: number };
+  const row = (await db.prepare(sql).get(...params)) as { c: number };
   if (row.c > 0) {
     return { error: 'Este negócio já possui um banner ativo nesta posição (feed ou sidebar).' };
   }
   return { ok: true };
 }
 
-export function getActiveAdvertisements(placement: AdPlacement): AdvertisementClient[] {
-  const db = getDb();
-  expireStaleAdvertisements(db);
-  const rows = db.prepare(
+export async function getActiveAdvertisements(placement: AdPlacement): Promise<AdvertisementClient[]> {
+  const db = await getDb();
+  await expireStaleAdvertisements(db);
+  const rows = (await db.prepare(
     `SELECT * FROM advertisements WHERE placement = ? AND ${ACTIVE_WHERE}
      ORDER BY order_num ASC, title ASC`
-  ).all(placement) as AdvertisementRow[];
-  return rows.map((row) => enrichAdvertisement(db, row));
+  ).all(placement)) as AdvertisementRow[];
+  return Promise.all(rows.map((row) => enrichAdvertisement(db, row)));
 }
 
-export function resolveAdPayload(
-  db: DatabaseSync,
+export async function resolveAdPayload(
+  db: Db,
   body: {
     title?: string;
     image_url?: string;
@@ -154,14 +153,14 @@ export function resolveAdPayload(
   if (!body.business_id) return { error: 'Negócio obrigatório' as const };
   if (!body.user_id) return { error: 'Usuário pagante obrigatório' as const };
 
-  const biz = resolveBusiness(db, body.business_id);
+  const biz = await resolveBusiness(db, body.business_id);
   if (!biz) return { error: 'Negócio não encontrado' as const };
   if (biz.owner_id !== body.user_id) return { error: 'O usuário deve ser o dono do negócio' as const };
 
   if (!body.image_url?.trim()) return { error: 'Imagem do banner obrigatória' as const };
 
   if (options?.activating !== false) {
-    const slot = assertBusinessBannerSlot(db, biz.id, placement, options?.exceptId);
+    const slot = await assertBusinessBannerSlot(db, biz.id, placement, options?.exceptId);
     if ('error' in slot) return slot;
   }
 

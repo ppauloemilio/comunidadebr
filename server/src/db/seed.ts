@@ -1,12 +1,12 @@
-import type { DatabaseSync } from 'node:sqlite';
+import type { Db } from './database.js';
 import bcrypt from 'bcryptjs';
 import { v4 as uuid } from 'uuid';
 import { EXAMPLE_FEED_BANNER } from '../lib/exampleSponsoredAd.js';
 
 const DEMO_PASSWORD = 'demo123';
 
-export function seedDatabase(db: DatabaseSync) {
-  const userCount = db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number };
+export async function seedDatabase(db: Db) {
+  const userCount = (await db.prepare('SELECT COUNT(*)::int as c FROM users').get()) as { c: number };
   if (userCount.c > 0) return;
 
   const countries = [
@@ -19,13 +19,12 @@ export function seedDatabase(db: DatabaseSync) {
   ];
 
   const insertCountry = db.prepare('INSERT INTO countries (id, name, code) VALUES (?, ?, ?)');
-  for (const c of countries) insertCountry.run(c.id, c.name, c.code);
+  for (const c of countries) await insertCountry.run(c.id, c.name, c.code);
 
   const skills = ['Culinária', 'Direito', 'Contabilidade', 'TI', 'Marketing', 'Saúde', 'Educação', 'Construção'];
   const insertSkill = db.prepare('INSERT INTO skills (id, name) VALUES (?, ?)');
-  for (const s of skills) insertSkill.run(uuid(), s);
+  for (const s of skills) await insertSkill.run(uuid(), s);
 
-  const categories = ['restaurant', 'law', 'accounting', 'health', 'education', 'tech', 'retail', 'services'];
   const hash = bcrypt.hashSync(DEMO_PASSWORD, 10);
 
   const demoUsers = [
@@ -50,8 +49,8 @@ export function seedDatabase(db: DatabaseSync) {
   for (const u of demoUsers) {
     const id = uuid();
     userIds.push(id);
-    insertUser.run(id, u.email, hash, u.username, u.full_name, null);
-    insertProfile.run(
+    await insertUser.run(id, u.email, hash, u.username, u.full_name, null);
+    await insertProfile.run(
       id,
       `Brasileiro(a) vivendo no exterior. Perfil demo de ${u.full_name}.`,
       u.country,
@@ -60,32 +59,33 @@ export function seedDatabase(db: DatabaseSync) {
       JSON.stringify({ instagram: `@${u.username}` }),
       JSON.stringify(['pt-BR', 'en'])
     );
-    insertHistory.run(uuid(), id, u.country, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
+    await insertHistory.run(uuid(), id, u.country, new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
   }
 
   const businessId = uuid();
-  db.prepare(
-    `INSERT INTO businesses (id, name, category, country, owner_id, latitude, longitude, address, state, city, tagline, description, skills, photos, social_links)
+  await db
+    .prepare(
+      `INSERT INTO businesses (id, name, category, country, owner_id, latitude, longitude, address, state, city, tagline, description, skills, photos, social_links)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(
-    businessId,
-    'Sabor do Brasil',
-    'restaurant',
-    'US',
-    userIds[0],
-    40.7128,
-    -74.006,
-    '123 Main St, New York, NY',
-    'New York',
-    'New York',
-    'Restaurante típico de comida brasileira',
-    'Restaurante com comidas boas e baratas, aquelas que você sabe, matar aquela fome por um preço justo!',
-    JSON.stringify(['Culinária']),
-    JSON.stringify([]),
-    JSON.stringify({ instagram: '@sabordobrasil' })
-  );
+    )
+    .run(
+      businessId,
+      'Sabor do Brasil',
+      'restaurant',
+      'US',
+      userIds[0],
+      40.7128,
+      -74.006,
+      '123 Main St, New York, NY',
+      'New York',
+      'New York',
+      'Restaurante típico de comida brasileira',
+      'Restaurante com comidas boas e baratas, aquelas que você sabe, matar aquela fome por um preço justo!',
+      JSON.stringify(['Culinária']),
+      JSON.stringify([]),
+      JSON.stringify({ instagram: '@sabordobrasil' })
+    );
 
-  const postTypes = ['text', 'image', 'business_promo', 'job', 'event'] as const;
   const insertPost = db.prepare(
     `INSERT INTO posts (id, content, type, images, author_id, business_id, country, likes_count, comments_count, author_snapshot, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -103,14 +103,17 @@ export function seedDatabase(db: DatabaseSync) {
 
   for (const p of posts) {
     const authorId = userIds[p.author];
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(authorId) as {
-      id: string; username: string; full_name: string; avatar_url: string | null;
+    const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(authorId)) as {
+      id: string;
+      username: string;
+      full_name: string;
+      avatar_url: string | null;
     };
-    const profile = db.prepare('SELECT current_city, current_country FROM public_profiles WHERE user_id = ?').get(authorId) as
-      | { current_city: string; current_country: string }
-      | undefined;
+    const profile = (await db
+      .prepare('SELECT current_city, current_country FROM public_profiles WHERE user_id = ?')
+      .get(authorId)) as { current_city: string; current_country: string } | undefined;
     const createdAt = new Date(Date.now() - p.daysAgo * 24 * 60 * 60 * 1000).toISOString();
-    insertPost.run(
+    await insertPost.run(
       uuid(),
       p.content,
       p.type,
@@ -133,32 +136,36 @@ export function seedDatabase(db: DatabaseSync) {
   }
 
   const endDate = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  db.prepare(
-    `INSERT INTO advertisements (
+  await db
+    .prepare(
+      `INSERT INTO advertisements (
       id, title, image_url, link_url, description, is_active, order_num,
       placement, source_type, user_id, business_id, end_date
     ) VALUES (?, ?, ?, '/business-map', ?, 1, ?, ?, 'user', ?, ?, ?)`
-  ).run(
-    uuid(),
-    'Sabor do Brasil',
-    EXAMPLE_FEED_BANNER.image_url,
-    EXAMPLE_FEED_BANNER.description,
-    EXAMPLE_FEED_BANNER.order_num,
-    EXAMPLE_FEED_BANNER.placement,
-    userIds[0],
-    businessId,
-    endDate
-  );
+    )
+    .run(
+      uuid(),
+      'Sabor do Brasil',
+      EXAMPLE_FEED_BANNER.image_url,
+      EXAMPLE_FEED_BANNER.description,
+      EXAMPLE_FEED_BANNER.order_num,
+      EXAMPLE_FEED_BANNER.placement,
+      userIds[0],
+      businessId,
+      endDate
+    );
 
-  db.prepare(
-    `INSERT INTO follows (id, follower_id, following_id, follower_snapshot, created_at)
+  await db
+    .prepare(
+      `INSERT INTO follows (id, follower_id, following_id, follower_snapshot, created_at)
      VALUES (?, ?, ?, ?, datetime('now'))`
-  ).run(
-    uuid(),
-    userIds[1],
-    userIds[0],
-    JSON.stringify({ id: userIds[1], username: 'carlos_mendes', full_name: 'Carlos Mendes', avatar_url: null })
-  );
+    )
+    .run(
+      uuid(),
+      userIds[1],
+      userIds[0],
+      JSON.stringify({ id: userIds[1], username: 'carlos_mendes', full_name: 'Carlos Mendes', avatar_url: null })
+    );
 
   console.log('✅ Banco de dados inicializado com dados demo');
   console.log('   Login demo: ana@demo.com / demo123');

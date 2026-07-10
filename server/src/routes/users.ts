@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { v4 as uuid } from 'uuid';
-import { getDb, parseJson, UserRow } from '../db/database.js';
+import { getDb, parseJson, UserRow, type Db } from '../db/database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
 import { isPremiumProfile } from '../lib/settings.js';
 
 const router = Router();
 
-function formatUser(user: UserRow, profile?: Record<string, unknown>, extra?: Record<string, unknown>) {
+async function formatUser(user: UserRow, profile?: Record<string, unknown>, extra?: Record<string, unknown>) {
   const social = parseJson(profile?.social_links as string, {});
-  const premiumActive = isPremiumProfile(profile as { is_premium?: number; premium_until?: string | null });
+  const premiumActive = await isPremiumProfile(profile as { is_premium?: number; premium_until?: string | null });
   return {
     id: user.id,
     username: user.username,
@@ -32,57 +32,59 @@ function formatUser(user: UserRow, profile?: Record<string, unknown>, extra?: Re
   };
 }
 
-function profileStats(db: ReturnType<typeof getDb>, userId: string) {
-  const followers = db.prepare('SELECT COUNT(*) as c FROM follows WHERE following_id = ?').get(userId) as { c: number };
-  const following = db.prepare('SELECT COUNT(*) as c FROM follows WHERE follower_id = ?').get(userId) as { c: number };
-  const posts = db.prepare('SELECT COUNT(*) as c FROM posts WHERE author_id = ? AND is_active = 1').get(userId) as { c: number };
+async function profileStats(db: Db, userId: string) {
+  const followers = (await db.prepare('SELECT COUNT(*)::int as c FROM follows WHERE following_id = ?').get(userId)) as { c: number };
+  const following = (await db.prepare('SELECT COUNT(*)::int as c FROM follows WHERE follower_id = ?').get(userId)) as { c: number };
+  const posts = (await db.prepare('SELECT COUNT(*)::int as c FROM posts WHERE author_id = ? AND is_active = 1').get(userId)) as { c: number };
   return { followers_count: followers.c, following_count: following.c, posts_count: posts.c };
 }
 
-router.get('/', authMiddleware, (req, res) => {
+router.get('/', authMiddleware, async (req, res) => {
   const { q, country } = req.query;
-  const db = getDb();
+  const db = await getDb();
   let users: UserRow[];
 
   if (q) {
-    users = db.prepare(
+    users = (await db.prepare(
       `SELECT u.* FROM users u
        LEFT JOIN public_profiles p ON p.user_id = u.id
        WHERE u.full_name LIKE ? OR u.username LIKE ?
        ${country ? 'AND p.current_country = ?' : ''}
        LIMIT 50`
-    ).all(...(country ? [`%${q}%`, `%${q}%`, country] : [`%${q}%`, `%${q}%`])) as UserRow[];
+    ).all(...(country ? [`%${q}%`, `%${q}%`, country] : [`%${q}%`, `%${q}%`]))) as UserRow[];
   } else if (country) {
-    users = db.prepare(
+    users = (await db.prepare(
       `SELECT u.* FROM users u
        JOIN public_profiles p ON p.user_id = u.id
        WHERE p.current_country = ? LIMIT 50`
-    ).all(country) as UserRow[];
+    ).all(country)) as UserRow[];
   } else {
-    users = db.prepare('SELECT * FROM users LIMIT 50').all() as UserRow[];
+    users = (await db.prepare('SELECT * FROM users LIMIT 50').all()) as UserRow[];
   }
 
   res.json(
-    users.map((u) => {
-      const profile = db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(u.id) as Record<string, unknown>;
-      return formatUser(u, profile);
-    })
+    await Promise.all(
+      users.map(async (u) => {
+        const profile = (await db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(u.id)) as Record<string, unknown>;
+        return formatUser(u, profile);
+      })
+    )
   );
 });
 
-router.get('/:id/posts', authMiddleware, (req, res) => {
-  const db = getDb();
-  const posts = db.prepare(
+router.get('/:id/posts', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const posts = await db.prepare(
     'SELECT * FROM posts WHERE author_id = ? AND is_active = 1 ORDER BY created_at DESC'
   ).all(req.params.id);
 
-  const likes = db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id) as { post_id: string }[];
+  const likes = (await db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id)) as { post_id: string }[];
   const likedSet = new Set(likes.map((l) => l.post_id));
 
-  const authorProfile = db.prepare(
+  const authorProfile = (await db.prepare(
     'SELECT is_premium, premium_until FROM public_profiles WHERE user_id = ?'
-  ).get(req.params.id) as { is_premium: number; premium_until: string | null } | undefined;
-  const authorIsPremium = isPremiumProfile(authorProfile);
+  ).get(req.params.id)) as { is_premium: number; premium_until: string | null } | undefined;
+  const authorIsPremium = await isPremiumProfile(authorProfile);
 
   res.json(
     posts.map((p) => ({
@@ -98,28 +100,28 @@ router.get('/:id/posts', authMiddleware, (req, res) => {
   );
 });
 
-router.get('/:id/businesses', authMiddleware, (req, res) => {
-  const db = getDb();
-  const businesses = db.prepare(
+router.get('/:id/businesses', authMiddleware, async (req, res) => {
+  const db = await getDb();
+  const businesses = await db.prepare(
     'SELECT id, name, category, address, country FROM businesses WHERE owner_id = ? AND is_active = 1 ORDER BY created_at DESC'
   ).all(req.params.id);
   res.json(businesses);
 });
 
-router.get('/:id', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id) as UserRow | undefined;
+router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id)) as UserRow | undefined;
   if (!user) return res.status(404).json({ error: 'Usuário não encontrado' });
 
-  const profile = db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(user.id) as Record<string, unknown>;
-  const skills = db.prepare('SELECT * FROM user_skills WHERE user_id = ?').all(user.id);
-  const stats = profileStats(db, user.id);
+  const profile = (await db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(user.id)) as Record<string, unknown>;
+  const skills = await db.prepare('SELECT * FROM user_skills WHERE user_id = ?').all(user.id);
+  const stats = await profileStats(db, user.id);
 
   if (req.user!.id !== user.id) {
-    const isFollowing = db.prepare(
+    const isFollowing = await db.prepare(
       'SELECT id FROM follows WHERE follower_id = ? AND following_id = ?'
     ).get(req.user!.id, user.id);
-    const publicProfile = { ...formatUser(user, profile, stats), skills, is_following: !!isFollowing };
+    const publicProfile = { ...(await formatUser(user, profile, stats)), skills, is_following: !!isFollowing };
     if (!publicProfile.show_city_on_profile) {
       publicProfile.current_city = '';
       publicProfile.current_state = '';
@@ -133,10 +135,10 @@ router.get('/:id', authMiddleware, (req: AuthRequest, res) => {
     return;
   }
 
-  res.json({ ...formatUser(user, profile, stats), skills });
+  res.json({ ...(await formatUser(user, profile, stats)), skills });
 });
 
-router.patch('/me/profile', authMiddleware, (req: AuthRequest, res) => {
+router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
   const {
     full_name, bio, username, avatar_url, cover_url,
     current_country, current_state, current_city,
@@ -144,21 +146,21 @@ router.patch('/me/profile', authMiddleware, (req: AuthRequest, res) => {
     show_city_on_profile, show_whatsapp_on_profile,
     social_links, languages,
   } = req.body;
-  const db = getDb();
+  const db = await getDb();
   const userId = req.user!.id;
 
-  if (full_name !== undefined) db.prepare('UPDATE users SET full_name = ? WHERE id = ?').run(full_name, userId);
-  if (avatar_url !== undefined) db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(avatar_url, userId);
+  if (full_name !== undefined) await db.prepare('UPDATE users SET full_name = ? WHERE id = ?').run(full_name, userId);
+  if (avatar_url !== undefined) await db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(avatar_url, userId);
   if (username) {
-    const taken = db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, userId);
+    const taken = await db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, userId);
     if (taken) return res.status(409).json({ error: 'Username já em uso' });
-    db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, userId);
+    await db.prepare('UPDATE users SET username = ? WHERE id = ?').run(username, userId);
   }
 
-  let profile = db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId) as Record<string, unknown> | undefined;
+  let profile = (await db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId)) as Record<string, unknown> | undefined;
   if (!profile) {
-    db.prepare('INSERT INTO public_profiles (user_id, current_country) VALUES (?, ?)').run(userId, current_country || 'BR');
-    profile = db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId) as Record<string, unknown>;
+    await db.prepare('INSERT INTO public_profiles (user_id, current_country) VALUES (?, ?)').run(userId, current_country || 'BR');
+    profile = (await db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId)) as Record<string, unknown>;
   }
 
   const profileUpdates: string[] = [];
@@ -197,48 +199,48 @@ router.patch('/me/profile', authMiddleware, (req: AuthRequest, res) => {
   }
 
   if (profileUpdates.length > 0) {
-    db.prepare(
+    await db.prepare(
       `UPDATE public_profiles SET ${profileUpdates.join(', ')} WHERE user_id = ?`
     ).run(...profileParams, userId);
   }
 
   if (current_country) {
-    const existing = db.prepare(
+    const existing = await db.prepare(
       'SELECT id FROM user_country_history WHERE user_id = ? AND country = ?'
     ).get(userId, current_country);
     if (!existing) {
-      db.prepare('INSERT INTO user_country_history (id, user_id, country, joined_at) VALUES (?, ?, ?, ?)').run(
+      await db.prepare('INSERT INTO user_country_history (id, user_id, country, joined_at) VALUES (?, ?, ?, ?)').run(
         uuid(), userId, current_country, new Date().toISOString()
       );
     }
   }
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as UserRow;
-  const updatedProfile = db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId) as Record<string, unknown>;
-  res.json(formatUser(user, updatedProfile, profileStats(db, userId)));
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(userId)) as UserRow;
+  const updatedProfile = (await db.prepare('SELECT * FROM public_profiles WHERE user_id = ?').get(userId)) as Record<string, unknown>;
+  res.json(await formatUser(user, updatedProfile, await profileStats(db, userId)));
 });
 
-router.post('/me/skills', authMiddleware, (req: AuthRequest, res) => {
+router.post('/me/skills', authMiddleware, async (req: AuthRequest, res) => {
   const { skill_name, proficiency_level = 'intermediate', years_experience = 0 } = req.body;
   if (!skill_name) return res.status(400).json({ error: 'Skill obrigatória' });
-  const db = getDb();
-  const existing = db.prepare('SELECT id FROM user_skills WHERE user_id = ? AND skill_name = ?').get(req.user!.id, skill_name);
+  const db = await getDb();
+  const existing = await db.prepare('SELECT id FROM user_skills WHERE user_id = ? AND skill_name = ?').get(req.user!.id, skill_name);
   if (existing) {
-    db.prepare('UPDATE user_skills SET proficiency_level = ?, years_experience = ? WHERE id = ?').run(
+    await db.prepare('UPDATE user_skills SET proficiency_level = ?, years_experience = ? WHERE id = ?').run(
       proficiency_level, years_experience, (existing as { id: string }).id
     );
     return res.json({ ok: true });
   }
   const id = uuid();
-  db.prepare(
+  await db.prepare(
     'INSERT INTO user_skills (id, user_id, skill_name, proficiency_level, years_experience) VALUES (?, ?, ?, ?, ?)'
   ).run(id, req.user!.id, skill_name, proficiency_level, years_experience);
   res.status(201).json({ id, skill_name, proficiency_level, years_experience });
 });
 
-router.delete('/me/skills/:id', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
-  db.prepare('DELETE FROM user_skills WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
+router.delete('/me/skills/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  await db.prepare('DELETE FROM user_skills WHERE id = ? AND user_id = ?').run(req.params.id, req.user!.id);
   res.json({ ok: true });
 });
 

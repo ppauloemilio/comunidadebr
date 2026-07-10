@@ -1,36 +1,47 @@
-import { DatabaseSync } from 'node:sqlite';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import pg from 'pg';
 import { v4 as uuid } from 'uuid';
+import { createPgDb, type Db } from './pg.js';
 import { seedDatabase } from './seed.js';
 import { seedAppSettings } from '../lib/settings.js';
 import { seedMonetizationExamples } from '../lib/seedMonetizationExamples.js';
 import { ensureAdminUser } from '../lib/adminUser.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, '../../data');
-const dbPath = path.join(dataDir, 'comunidade.db');
+let pool: pg.Pool | null = null;
+let db: Db | null = null;
+let initPromise: Promise<Db> | null = null;
 
-let db: DatabaseSync;
+export type { Db };
 
-export function getDb(): DatabaseSync {
-  if (!db) {
-    fs.mkdirSync(dataDir, { recursive: true });
-    db = new DatabaseSync(dbPath);
-    db.exec('PRAGMA journal_mode = WAL');
-    db.exec('PRAGMA foreign_keys = ON');
-    migrate(db);
-    seedDatabase(db);
-    seedAppSettings(db);
-    seedMonetizationExamples(db);
-    patchProfileCities(db);
-    ensureAdminUser(db).catch((err) => console.error('Admin setup:', err));
+export async function getDb(): Promise<Db> {
+  if (db) return db;
+  if (!initPromise) initPromise = initDb();
+  return initPromise;
+}
+
+async function initDb(): Promise<Db> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error('DATABASE_URL não definida. Configure a connection string do Neon/Postgres.');
   }
+
+  pool = new pg.Pool({
+    connectionString,
+    ssl: connectionString.includes('sslmode=require') || connectionString.includes('neon.tech')
+      ? { rejectUnauthorized: false }
+      : undefined,
+  });
+
+  db = createPgDb(pool);
+  await migrate(db);
+  await seedDatabase(db);
+  await seedAppSettings(db);
+  await seedMonetizationExamples(db);
+  await patchProfileCities(db);
+  await ensureAdminUser(db).catch((err) => console.error('Admin setup:', err));
   return db;
 }
 
-function patchProfileCities(database: DatabaseSync) {
+async function patchProfileCities(database: Db) {
   const patches: Array<[string, string, string]> = [
     ['ana_silva', 'New York', 'US'],
     ['carlos_mendes', 'New York', 'US'],
@@ -43,26 +54,32 @@ function patchProfileCities(database: DatabaseSync) {
      WHERE user_id = (SELECT id FROM users WHERE username = ?)`
   );
   for (const [username, city, country] of patches) {
-    if (country) stmt.run(city, country, username);
+    if (country) await stmt.run(city, country, username);
   }
 
-  database.prepare(
-    `UPDATE public_profiles SET origin_city = ? WHERE user_id = (SELECT id FROM users WHERE username = 'ana_silva')`
-  ).run('Salvador, Bahia');
+  await database
+    .prepare(
+      `UPDATE public_profiles SET origin_city = ? WHERE user_id = (SELECT id FROM users WHERE username = 'ana_silva')`
+    )
+    .run('Salvador, Bahia');
 
-  const ana = database.prepare(`SELECT id FROM users WHERE username = 'ana_silva'`).get() as { id: string } | undefined;
+  const ana = (await database.prepare(`SELECT id FROM users WHERE username = 'ana_silva'`).get()) as
+    | { id: string }
+    | undefined;
   if (ana) {
-    const skillExists = database.prepare('SELECT id FROM user_skills WHERE user_id = ? LIMIT 1').get(ana.id);
+    const skillExists = await database.prepare('SELECT id FROM user_skills WHERE user_id = ? LIMIT 1').get(ana.id);
     if (!skillExists) {
-      database.prepare(
-        'INSERT INTO user_skills (id, user_id, skill_name, proficiency_level, years_experience) VALUES (?, ?, ?, ?, ?)'
-      ).run(uuid(), ana.id, 'Gastronomia', 'advanced', 5);
+      await database
+        .prepare(
+          'INSERT INTO user_skills (id, user_id, skill_name, proficiency_level, years_experience) VALUES (?, ?, ?, ?, ?)'
+        )
+        .run(uuid(), ana.id, 'Gastronomia', 'advanced', 5);
     }
   }
 }
 
-function migrate(database: DatabaseSync) {
-  database.exec(`
+async function migrate(database: Db) {
+  await database.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE NOT NULL,
@@ -70,7 +87,10 @@ function migrate(database: DatabaseSync) {
       username TEXT UNIQUE NOT NULL,
       full_name TEXT NOT NULL,
       avatar_url TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      is_admin INTEGER DEFAULT 0,
+      password_set INTEGER DEFAULT 1,
+      is_active INTEGER DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS public_profiles (
@@ -86,7 +106,9 @@ function migrate(database: DatabaseSync) {
       show_city_on_profile INTEGER DEFAULT 1,
       show_whatsapp_on_profile INTEGER DEFAULT 0,
       social_links TEXT DEFAULT '{}',
-      languages TEXT DEFAULT '["pt-BR"]'
+      languages TEXT DEFAULT '["pt-BR"]',
+      is_premium INTEGER DEFAULT 0,
+      premium_until TEXT
     );
 
     CREATE TABLE IF NOT EXISTS user_country_history (
@@ -137,14 +159,21 @@ function migrate(database: DatabaseSync) {
       category TEXT NOT NULL,
       country TEXT NOT NULL,
       owner_id TEXT NOT NULL REFERENCES users(id),
-      latitude REAL,
-      longitude REAL,
+      latitude DOUBLE PRECISION,
+      longitude DOUBLE PRECISION,
       address TEXT DEFAULT '',
+      state TEXT DEFAULT '',
+      city TEXT DEFAULT '',
+      tagline TEXT DEFAULT '',
+      description TEXT DEFAULT '',
       skills TEXT DEFAULT '[]',
       photos TEXT DEFAULT '[]',
       social_links TEXT DEFAULT '{}',
       is_active INTEGER DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      is_featured INTEGER DEFAULT 0,
+      featured_until TEXT,
+      featured_order INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS posts (
@@ -158,8 +187,10 @@ function migrate(database: DatabaseSync) {
       likes_count INTEGER DEFAULT 0,
       comments_count INTEGER DEFAULT 0,
       is_active INTEGER DEFAULT 1,
+      is_promoted INTEGER DEFAULT 0,
+      promoted_until TEXT,
       author_snapshot TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS comments (
@@ -169,7 +200,7 @@ function migrate(database: DatabaseSync) {
       content TEXT NOT NULL,
       author_snapshot TEXT NOT NULL,
       is_active INTEGER DEFAULT 1,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS likes (
@@ -177,7 +208,7 @@ function migrate(database: DatabaseSync) {
       post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
       user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       user_snapshot TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (NOW()::text),
       UNIQUE(post_id, user_id)
     );
 
@@ -186,7 +217,7 @@ function migrate(database: DatabaseSync) {
       post_id TEXT NOT NULL REFERENCES posts(id),
       user_id TEXT NOT NULL REFERENCES users(id),
       post_snapshot TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS follows (
@@ -194,7 +225,7 @@ function migrate(database: DatabaseSync) {
       follower_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       following_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       follower_snapshot TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (NOW()::text),
       UNIQUE(follower_id, following_id)
     );
 
@@ -203,7 +234,7 @@ function migrate(database: DatabaseSync) {
       requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       receiver_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       status TEXT NOT NULL DEFAULT 'pending',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL DEFAULT (NOW()::text),
       UNIQUE(requester_id, receiver_id)
     );
 
@@ -216,7 +247,7 @@ function migrate(database: DatabaseSync) {
       target_id TEXT,
       is_read INTEGER DEFAULT 0,
       actor_snapshot TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS advertisements (
@@ -228,7 +259,12 @@ function migrate(database: DatabaseSync) {
       is_active INTEGER DEFAULT 1,
       order_num INTEGER DEFAULT 0,
       start_date TEXT,
-      end_date TEXT
+      end_date TEXT,
+      placement TEXT DEFAULT 'feed',
+      source_type TEXT DEFAULT 'user',
+      user_id TEXT REFERENCES users(id),
+      business_id TEXT REFERENCES businesses(id),
+      created_at TEXT DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS conversations (
@@ -238,8 +274,8 @@ function migrate(database: DatabaseSync) {
       participant_ids TEXT NOT NULL,
       last_message TEXT,
       unread_count TEXT DEFAULT '{}',
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text),
+      updated_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE TABLE IF NOT EXISTS messages (
@@ -250,7 +286,23 @@ function migrate(database: DatabaseSync) {
       attachment_url TEXT,
       is_read INTEGER DEFAULT 0,
       is_deleted INTEGER DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
+    );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (NOW()::text)
+    );
+
+    CREATE TABLE IF NOT EXISTS password_invites (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token TEXT UNIQUE NOT NULL,
+      email TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
     CREATE INDEX IF NOT EXISTS idx_posts_country ON posts(country, created_at);
@@ -260,84 +312,19 @@ function migrate(database: DatabaseSync) {
   `);
 
   try {
-    database.exec(`ALTER TABLE public_profiles ADD COLUMN current_city TEXT DEFAULT ''`);
-  } catch { /* coluna já existe */ }
-  try {
-    database.exec(`ALTER TABLE public_profiles ADD COLUMN origin_city TEXT DEFAULT ''`);
-  } catch { /* coluna já existe */ }
-  const alters = [
-    `ALTER TABLE public_profiles ADD COLUMN origin_state TEXT DEFAULT ''`,
-    `ALTER TABLE public_profiles ADD COLUMN current_state TEXT DEFAULT ''`,
-    `ALTER TABLE public_profiles ADD COLUMN cover_url TEXT DEFAULT ''`,
-    `ALTER TABLE public_profiles ADD COLUMN primary_skill TEXT DEFAULT ''`,
-    `ALTER TABLE public_profiles ADD COLUMN show_city_on_profile INTEGER DEFAULT 1`,
-    `ALTER TABLE public_profiles ADD COLUMN show_whatsapp_on_profile INTEGER DEFAULT 0`,
-  ];
-  for (const sql of alters) {
-    try { database.exec(sql); } catch { /* ok */ }
-  }
-  const businessAlters = [
-    `ALTER TABLE businesses ADD COLUMN state TEXT DEFAULT ''`,
-    `ALTER TABLE businesses ADD COLUMN city TEXT DEFAULT ''`,
-    `ALTER TABLE businesses ADD COLUMN tagline TEXT DEFAULT ''`,
-    `ALTER TABLE businesses ADD COLUMN description TEXT DEFAULT ''`,
-  ];
-  for (const sql of businessAlters) {
-    try { database.exec(sql); } catch { /* ok */ }
-  }
-  const monetizationAlters = [
-    `ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0`,
-    `ALTER TABLE users ADD COLUMN password_set INTEGER DEFAULT 1`,
-    `ALTER TABLE businesses ADD COLUMN is_featured INTEGER DEFAULT 0`,
-    `ALTER TABLE businesses ADD COLUMN featured_until TEXT`,
-    `ALTER TABLE businesses ADD COLUMN featured_order INTEGER DEFAULT 0`,
-    `ALTER TABLE posts ADD COLUMN is_promoted INTEGER DEFAULT 0`,
-    `ALTER TABLE posts ADD COLUMN promoted_until TEXT`,
-    `ALTER TABLE public_profiles ADD COLUMN is_premium INTEGER DEFAULT 0`,
-    `ALTER TABLE public_profiles ADD COLUMN premium_until TEXT`,
-    `ALTER TABLE users ADD COLUMN is_active INTEGER DEFAULT 1`,
-  ];
-  for (const sql of monetizationAlters) {
-    try { database.exec(sql); } catch { /* ok */ }
-  }
-  const adAlters = [
-    `ALTER TABLE advertisements ADD COLUMN placement TEXT DEFAULT 'feed'`,
-    `ALTER TABLE advertisements ADD COLUMN source_type TEXT DEFAULT 'user'`,
-    `ALTER TABLE advertisements ADD COLUMN user_id TEXT REFERENCES users(id)`,
-    `ALTER TABLE advertisements ADD COLUMN business_id TEXT REFERENCES businesses(id)`,
-    `ALTER TABLE advertisements ADD COLUMN created_at TEXT DEFAULT (datetime('now'))`,
-  ];
-  for (const sql of adAlters) {
-    try { database.exec(sql); } catch { /* ok */ }
-  }
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS app_settings (
-      key TEXT PRIMARY KEY,
-      value TEXT NOT NULL,
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS password_invites (
-      id TEXT PRIMARY KEY,
-      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-      token TEXT UNIQUE NOT NULL,
-      email TEXT NOT NULL,
-      expires_at TEXT NOT NULL,
-      used_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
-  `);
-  try {
-    database.exec(
+    await database.exec(
       `UPDATE businesses SET city = 'New York', state = 'New York'
        WHERE TRIM(COALESCE(city, '')) = '' AND address LIKE '%New York%'`
     );
-    database.exec(
+    await database.exec(
       `UPDATE businesses SET
          tagline = 'Restaurante típico de comida brasileira',
          description = 'Restaurante com comidas boas e baratas, aquelas que você sabe, matar aquela fome por um preço justo!'
        WHERE name = 'Sabor do Brasil' AND TRIM(COALESCE(description, '')) = ''`
     );
-  } catch { /* ok */ }
+  } catch {
+    /* ok */
+  }
 }
 
 export type UserRow = {
@@ -363,8 +350,12 @@ export function parseJson<T>(value: string | null, fallback: T): T {
 }
 
 export function userSnapshot(user: {
-  id: string; username: string; full_name: string; avatar_url: string | null;
-  city?: string; country?: string;
+  id: string;
+  username: string;
+  full_name: string;
+  avatar_url: string | null;
+  city?: string;
+  country?: string;
 }) {
   return JSON.stringify({
     id: user.id,

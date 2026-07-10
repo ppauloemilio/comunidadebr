@@ -13,41 +13,41 @@ function countryName(code: string): string {
 
 type CountryRow = { country_code: string; people_count: number; business_count: number };
 
-router.get('/', authMiddleware, (req: AuthRequest, res) => {
-  const db = getDb();
+router.get('/', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
   const filterCountry = (req.query.country as string)?.trim().toUpperCase() || '';
 
-  const meProfile = db.prepare(
+  const meProfile = (await db.prepare(
     'SELECT current_country FROM public_profiles WHERE user_id = ?'
-  ).get(req.user!.id) as { current_country: string } | undefined;
+  ).get(req.user!.id)) as { current_country: string } | undefined;
   const currentCountry = (meProfile?.current_country || '').toUpperCase();
 
-  const countryStats = db.prepare(
+  const countryStats = (await db.prepare(
     `SELECT country_code,
-            SUM(people_count) AS people_count,
-            SUM(business_count) AS business_count
+            SUM(people_count)::int AS people_count,
+            SUM(business_count)::int AS business_count
      FROM (
-       SELECT UPPER(TRIM(current_country)) AS country_code, COUNT(*) AS people_count, 0 AS business_count
+       SELECT UPPER(TRIM(current_country)) AS country_code, COUNT(*)::int AS people_count, 0 AS business_count
        FROM public_profiles
        WHERE current_country IS NOT NULL
          AND TRIM(current_country) != ''
          AND UPPER(TRIM(current_country)) != ?
        GROUP BY UPPER(TRIM(current_country))
        UNION ALL
-       SELECT UPPER(TRIM(country)) AS country_code, 0 AS people_count, COUNT(*) AS business_count
+       SELECT UPPER(TRIM(country)) AS country_code, 0 AS people_count, COUNT(*)::int AS business_count
        FROM businesses
        WHERE is_active = 1
          AND country IS NOT NULL
          AND TRIM(country) != ''
          AND UPPER(TRIM(country)) != ?
        GROUP BY UPPER(TRIM(country))
-     )
+     ) AS country_union
      GROUP BY country_code
      ORDER BY (people_count + business_count) DESC, country_code`
-  ).all(EXCLUDED, EXCLUDED) as CountryRow[];
+  ).all(EXCLUDED, EXCLUDED)) as CountryRow[];
 
-  const peopleTotal = countryStats.reduce((s, c) => s + c.people_count, 0);
-  const businessTotal = countryStats.reduce((s, c) => s + c.business_count, 0);
+  const peopleTotal = countryStats.reduce((s, c) => s + Number(c.people_count), 0);
+  const businessTotal = countryStats.reduce((s, c) => s + Number(c.business_count), 0);
 
   const currentCountryPeople = countryStats.find((c) => c.country_code === currentCountry)?.people_count || 0;
 
@@ -55,8 +55,9 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
     ? countryStats.filter((c) => c.country_code === filterCountry)
     : countryStats;
 
-  const countries = visibleCountries.map((c) => {
-    const users = db.prepare(
+  const countries = [];
+  for (const c of visibleCountries) {
+    const users = (await db.prepare(
       `SELECT u.id, u.full_name, u.username, u.avatar_url,
               p.bio, p.current_country, p.current_city, p.primary_skill,
               p.show_city_on_profile, p.is_premium, p.premium_until,
@@ -69,7 +70,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
        ORDER BY
          CASE WHEN p.is_premium = 1 AND (p.premium_until IS NULL OR p.premium_until >= datetime('now')) THEN 0 ELSE 1 END,
          u.full_name ASC`
-    ).all(req.user!.id, c.country_code, EXCLUDED) as Array<{
+    ).all(req.user!.id, c.country_code, EXCLUDED)) as Array<{
       id: string;
       full_name: string;
       username: string;
@@ -84,7 +85,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
       is_following: number;
     }>;
 
-    const businesses = db.prepare(
+    const businesses = (await db.prepare(
       `SELECT b.id, b.name, b.category, b.tagline, b.description, b.address, b.city, b.state, b.country,
               b.latitude, b.longitude, b.skills,
               u.id AS owner_id, u.full_name AS owner_name
@@ -94,7 +95,7 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
          AND UPPER(TRIM(b.country)) = ?
          AND UPPER(TRIM(b.country)) != ?
        ORDER BY b.name ASC`
-    ).all(c.country_code, EXCLUDED) as Array<{
+    ).all(c.country_code, EXCLUDED)) as Array<{
       id: string;
       name: string;
       category: string;
@@ -111,17 +112,19 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
       skills: string;
     }>;
 
-    return {
+    countries.push({
       code: c.country_code,
       name: countryName(c.country_code),
-      people_count: c.people_count,
-      business_count: c.business_count,
-      users: users.map((u) => ({
-        ...u,
-        is_following: !!u.is_following,
-        is_premium: isPremiumProfile(u),
-        current_city: u.show_city_on_profile ? u.current_city : '',
-      })),
+      people_count: Number(c.people_count),
+      business_count: Number(c.business_count),
+      users: await Promise.all(
+        users.map(async (u) => ({
+          ...u,
+          is_following: !!u.is_following,
+          is_premium: await isPremiumProfile(u),
+          current_city: u.show_city_on_profile ? u.current_city : '',
+        }))
+      ),
       businesses: businesses.map((b) => ({
         id: b.id,
         name: b.name,
@@ -138,8 +141,8 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
         owner_name: b.owner_name,
         skills: parseJson(b.skills, [] as string[]),
       })),
-    };
-  });
+    });
+  }
 
   res.json({
     stats: {
@@ -149,12 +152,12 @@ router.get('/', authMiddleware, (req: AuthRequest, res) => {
     },
     current_country: currentCountry && currentCountry !== EXCLUDED ? currentCountry : '',
     current_country_name: currentCountry && currentCountry !== EXCLUDED ? countryName(currentCountry) : '',
-    current_country_people: currentCountryPeople,
+    current_country_people: Number(currentCountryPeople),
     top_countries: countryStats.slice(0, 10).map((c) => ({
       code: c.country_code,
       name: countryName(c.country_code),
-      people_count: c.people_count,
-      business_count: c.business_count,
+      people_count: Number(c.people_count),
+      business_count: Number(c.business_count),
     })),
     countries,
   });
