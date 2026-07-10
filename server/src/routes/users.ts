@@ -150,7 +150,12 @@ router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
   const userId = req.user!.id;
 
   if (full_name !== undefined) await db.prepare('UPDATE users SET full_name = ? WHERE id = ?').run(full_name, userId);
-  if (avatar_url !== undefined) await db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(avatar_url, userId);
+  if (avatar_url !== undefined) {
+    if (typeof avatar_url !== 'string' || avatar_url.length < 32) {
+      return res.status(400).json({ error: 'Imagem de avatar inválida' });
+    }
+    await db.prepare('UPDATE users SET avatar_url = ? WHERE id = ?').run(avatar_url, userId);
+  }
   if (username) {
     const taken = await db.prepare('SELECT id FROM users WHERE username = ? AND id != ?').get(username, userId);
     if (taken) return res.status(409).json({ error: 'Username já em uso' });
@@ -174,7 +179,12 @@ router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
   };
 
   setProfile('bio', bio);
-  setProfile('cover_url', cover_url);
+  if (cover_url !== undefined) {
+    if (typeof cover_url !== 'string' || cover_url.length < 32) {
+      return res.status(400).json({ error: 'Imagem de capa inválida' });
+    }
+    setProfile('cover_url', cover_url);
+  }
   setProfile('current_country', current_country);
   setProfile('current_state', current_state);
   setProfile('current_city', current_city);

@@ -27,7 +27,13 @@ async function createApp(): Promise<express.Express> {
 
   const app = express();
   app.use(cors());
-  app.use(express.json({ limit: '10mb' }));
+  // Se o body já foi parseado (handler Vercel), não deixa o express.json() zerar.
+  app.use((req, res, next) => {
+    if (req.body !== undefined && req.body !== null) {
+      return next();
+    }
+    return express.json({ limit: '10mb' })(req, res, next);
+  });
   app.use('/uploads', express.static(uploadsDir));
 
   app.get('/api/health', (_req, res) => {

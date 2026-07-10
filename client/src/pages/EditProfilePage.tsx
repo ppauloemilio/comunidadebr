@@ -219,24 +219,37 @@ export function EditProfilePage() {
   }, []);
 
   const persistPhoto = async (field: 'avatar_url' | 'cover_url', url: string) => {
-    await api('/users/me/profile', {
+    const updated = await api<{ avatar_url?: string | null; cover_url?: string }>('/users/me/profile', {
       method: 'PATCH',
       body: JSON.stringify({ [field]: url }),
     });
-    setForm((f) => ({ ...f, [field]: url }));
+
+    const saved =
+      field === 'avatar_url'
+        ? updated.avatar_url
+        : updated.cover_url;
+
+    if (!saved) {
+      throw new Error(
+        field === 'avatar_url'
+          ? 'Servidor não gravou o avatar. Tente uma imagem menor.'
+          : 'Servidor não gravou a capa. Tente uma imagem menor.'
+      );
+    }
+
+    setForm((f) => ({ ...f, [field]: saved }));
     qc.setQueryData<MeData>(['me-edit'], (old) => {
       if (!old) return old;
-      if (field === 'avatar_url') return { ...old, avatar_url: url };
+      if (field === 'avatar_url') return { ...old, avatar_url: saved };
       return {
         ...old,
-        profile: { ...old.profile, cover_url: url },
+        profile: { ...old.profile, cover_url: saved },
       };
     });
     if (field === 'avatar_url') {
-      writeCachedAvatar(user?.id, url);
-      patchUser({ avatar_url: url });
+      writeCachedAvatar(user?.id, saved);
+      patchUser({ avatar_url: saved });
     }
-    // Atualiza o header na hora; refresh em background sem apagar o avatar
     void refreshUser();
     qc.invalidateQueries({ queryKey: ['profile', user?.id] });
   };

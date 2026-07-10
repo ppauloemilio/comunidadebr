@@ -64,14 +64,14 @@ export async function prepareAvatarImage(file: File): Promise<File> {
   if (!ctx) return file;
 
   ctx.drawImage(img, sx, sy, crop, crop, 0, 0, size, size);
-  const blob = await compressJpeg(canvas, 100_000);
+  const blob = await compressJpeg(canvas, 80_000);
   return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
 }
 
 export async function prepareCoverImage(file: File): Promise<File> {
   const img = await loadImage(file);
-  const maxW = 1200;
-  const maxH = 450;
+  const maxW = 1000;
+  const maxH = 400;
 
   let width = img.width;
   let height = img.height;
@@ -91,6 +91,6 @@ export async function prepareCoverImage(file: File): Promise<File> {
   if (!ctx) return file;
 
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const blob = await compressJpeg(canvas, 280_000);
+  const blob = await compressJpeg(canvas, 180_000);
   return new File([blob], 'cover.jpg', { type: 'image/jpeg' });
 }
