@@ -1,6 +1,6 @@
 {
   "installCommand": "npm install --include=dev --workspace=client --workspace=server --include-workspace-root",
-  "buildCommand": "npm exec -w client -- vite build --outDir ../dist",
+  "buildCommand": "npm exec -w client -- vite build && rm -rf dist && cp -r client/dist dist",
   "outputDirectory": "dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
