@@ -1,6 +1,6 @@
 {
   "installCommand": "npm install --include=dev --workspace=client --workspace=server --include-workspace-root",
-  "buildCommand": "npm run vercel-build",
+  "buildCommand": "npm exec -w client -- vite build",
   "outputDirectory": "client/dist",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
