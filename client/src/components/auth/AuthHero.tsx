@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next';
-import { Globe, MapPin, Users, Sparkles } from 'lucide-react';
+import { MapPin, Users, Sparkles } from 'lucide-react';
 
 const FLAGS = ['🇧🇷', '🇺🇸', '🇵🇹', '🇩🇪', '🇨🇦', '🇬🇧'];
 
@@ -19,9 +19,7 @@ export function AuthHero() {
 
       <div className="relative">
         <div className="mb-8 flex items-center gap-3">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-white/15 backdrop-blur-sm">
-            <Globe className="h-6 w-6 text-white" />
-          </span>
+          <img src="/logo.png" alt="" className="h-11 w-11 object-contain drop-shadow-sm" />
           <div>
             <p className="text-lg font-bold leading-tight">{t('app.name')}</p>
             <p className="text-sm text-brand-100">{t('app.tagline')}</p>
