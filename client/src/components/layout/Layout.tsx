@@ -7,6 +7,7 @@ import {
 import { useState, useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { api } from '@/lib/api';
+import { pickBestAvatar, readCachedAvatar } from '@/lib/avatarCache';
 import { Button } from '@/components/ui/Button';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils';
@@ -25,6 +26,7 @@ export function Layout() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const isFeed = location.pathname === '/feed' || location.pathname === '/';
+  const headerAvatar = pickBestAvatar(user?.avatar_url, readCachedAvatar(user?.id));
 
   useEffect(() => {
     refreshUser();
@@ -126,8 +128,8 @@ export function Layout() {
               className={cn('rounded-full ring-2 ring-transparent hover:ring-brand-200', user?.is_premium && 'ring-brand-300')}
             >
               <Avatar
-                key={user?.avatar_url ? `av-${user.avatar_url.length}-${user.avatar_url.slice(-24)}` : 'av-none'}
-                src={user?.avatar_url}
+                key={headerAvatar ? `av-${headerAvatar.length}-${headerAvatar.slice(-24)}` : 'av-none'}
+                src={headerAvatar}
                 name={user?.full_name || 'U'}
                 className="h-9 w-9"
               />

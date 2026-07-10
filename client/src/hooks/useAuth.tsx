@@ -1,5 +1,11 @@
 import { createContext, useContext, useEffect, useState, useCallback, ReactNode } from 'react';
 import { api, setToken, clearToken, getToken } from '@/lib/api';
+import {
+  clearCachedAvatar,
+  pickBestAvatar,
+  readCachedAvatar,
+  writeCachedAvatar,
+} from '@/lib/avatarCache';
 
 export type User = {
   id: string;
@@ -23,6 +29,12 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
+function withCachedAvatar(user: User): User {
+  const avatar_url = pickBestAvatar(user.avatar_url, readCachedAvatar(user.id));
+  if (avatar_url) writeCachedAvatar(user.id, avatar_url);
+  return { ...user, avatar_url };
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -35,11 +47,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const me = await api<User & { profile?: unknown }>('/auth/me');
       setUser((current) => {
-        // Evita apagar avatar local se a API ainda não trouxe a URL
-        if (current?.avatar_url && !me.avatar_url) {
-          return { ...me, avatar_url: current.avatar_url };
-        }
-        return me;
+        const merged = withCachedAvatar({
+          ...me,
+          avatar_url: pickBestAvatar(me.avatar_url, current?.avatar_url, readCachedAvatar(me.id)),
+        });
+        return merged;
       });
     } catch {
       setUser((current) => {
@@ -51,7 +63,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const patchUser = useCallback((patch: Partial<User>) => {
-    setUser((current) => (current ? { ...current, ...patch } : current));
+    setUser((current) => {
+      if (!current) return current;
+      const next = { ...current, ...patch };
+      if (patch.avatar_url !== undefined) {
+        writeCachedAvatar(current.id, patch.avatar_url);
+        next.avatar_url = pickBestAvatar(patch.avatar_url, current.avatar_url);
+      }
+      return next;
+    });
   }, []);
 
   useEffect(() => {
@@ -64,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify({ email, password }),
     });
     setToken(res.token);
-    setUser(res.user);
+    setUser(withCachedAvatar(res.user));
   };
 
   const register = async (data: { email: string; password: string; username: string; full_name: string; country?: string }) => {
@@ -73,10 +93,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       body: JSON.stringify(data),
     });
     setToken(res.token);
-    setUser(res.user);
+    setUser(withCachedAvatar(res.user));
   };
 
   const logout = () => {
+    clearCachedAvatar(user?.id);
     clearToken();
     setUser(null);
   };

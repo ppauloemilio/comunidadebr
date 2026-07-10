@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Card, CardContent } from '@/components/ui/Card';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
+import { writeCachedAvatar } from '@/lib/avatarCache';
 import {
   prepareAvatarImage, prepareCoverImage, validateImageFile, fileToDataUrl,
 } from '@/lib/prepareProfileImage';
@@ -231,8 +232,12 @@ export function EditProfilePage() {
         profile: { ...old.profile, cover_url: url },
       };
     });
-    if (field === 'avatar_url') patchUser({ avatar_url: url });
-    await refreshUser();
+    if (field === 'avatar_url') {
+      writeCachedAvatar(user?.id, url);
+      patchUser({ avatar_url: url });
+    }
+    // Atualiza o header na hora; refresh em background sem apagar o avatar
+    void refreshUser();
     qc.invalidateQueries({ queryKey: ['profile', user?.id] });
   };
 

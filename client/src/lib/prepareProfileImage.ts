@@ -55,7 +55,7 @@ export async function prepareAvatarImage(file: File): Promise<File> {
   const crop = Math.min(img.width, img.height);
   const sx = (img.width - crop) / 2;
   const sy = (img.height - crop) / 2;
-  const size = 512;
+  const size = 256;
 
   const canvas = document.createElement('canvas');
   canvas.width = size;
@@ -64,7 +64,7 @@ export async function prepareAvatarImage(file: File): Promise<File> {
   if (!ctx) return file;
 
   ctx.drawImage(img, sx, sy, crop, crop, 0, 0, size, size);
-  const blob = await compressJpeg(canvas, 180_000);
+  const blob = await compressJpeg(canvas, 100_000);
   return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
 }
 

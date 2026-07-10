@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
@@ -6,6 +6,8 @@ import {
   MapPin, Briefcase, Calendar, LayoutGrid, Building2, Pencil, Settings, UserPlus, MessageCircle,
 } from 'lucide-react';
 import { api } from '@/lib/api';
+import { writeCachedAvatar } from '@/lib/avatarCache';
+import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { PostCard, Post } from '@/components/feed/PostCard';
@@ -58,12 +60,20 @@ export function ProfileView({
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { patchUser } = useAuth();
   const [tab, setTab] = useState<Tab>(defaultTab);
 
   const { data: user, isLoading } = useQuery({
     queryKey: ['profile', userId],
     queryFn: () => api<ProfileData>(`/users/${userId}`),
   });
+
+  // Mantém o avatar do header (topo direito) igual ao do perfil
+  useEffect(() => {
+    if (!isOwner || !user?.avatar_url) return;
+    writeCachedAvatar(user.id, user.avatar_url);
+    patchUser({ avatar_url: user.avatar_url });
+  }, [isOwner, user?.id, user?.avatar_url, patchUser]);
 
   const followMutation = useMutation({
     mutationFn: () =>
