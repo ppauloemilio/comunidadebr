@@ -74,6 +74,14 @@ export async function uploadFile(file: File) {
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     body: form,
   });
-  if (!res.ok) throw new Error('Falha no upload');
-  return res.json() as Promise<{ url: string }>;
+  const text = await res.text();
+  let data: { url?: string; error?: string } = {};
+  try {
+    data = text ? JSON.parse(text) : {};
+  } catch {
+    /* ignore */
+  }
+  if (!res.ok) throw new Error(data.error || `Falha no upload (HTTP ${res.status})`);
+  if (!data.url) throw new Error('Upload sem URL');
+  return data as { url: string };
 }

@@ -31,6 +31,25 @@ function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number):
   });
 }
 
+export async function fileToDataUrl(file: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(new Error('read failed'));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function compressJpeg(canvas: HTMLCanvasElement, maxBytes: number): Promise<Blob> {
+  let quality = 0.82;
+  let blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+  while (blob.size > maxBytes && quality > 0.45) {
+    quality -= 0.08;
+    blob = await canvasToBlob(canvas, 'image/jpeg', quality);
+  }
+  return blob;
+}
+
 export async function prepareAvatarImage(file: File): Promise<File> {
   const img = await loadImage(file);
   const crop = Math.min(img.width, img.height);
@@ -45,14 +64,14 @@ export async function prepareAvatarImage(file: File): Promise<File> {
   if (!ctx) return file;
 
   ctx.drawImage(img, sx, sy, crop, crop, 0, 0, size, size);
-  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.88);
+  const blob = await compressJpeg(canvas, 180_000);
   return new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
 }
 
 export async function prepareCoverImage(file: File): Promise<File> {
   const img = await loadImage(file);
-  const maxW = 1600;
-  const maxH = 600;
+  const maxW = 1200;
+  const maxH = 450;
 
   let width = img.width;
   let height = img.height;
@@ -72,6 +91,6 @@ export async function prepareCoverImage(file: File): Promise<File> {
   if (!ctx) return file;
 
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const blob = await canvasToBlob(canvas, 'image/jpeg', 0.88);
+  const blob = await compressJpeg(canvas, 280_000);
   return new File([blob], 'cover.jpg', { type: 'image/jpeg' });
 }

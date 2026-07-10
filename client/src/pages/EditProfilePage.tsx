@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Plus, Trash2, X } from 'lucide-react';
-import { api, uploadFile } from '@/lib/api';
+import { api } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -11,7 +11,7 @@ import { Textarea } from '@/components/ui/Textarea';
 import { Card, CardContent } from '@/components/ui/Card';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
 import {
-  prepareAvatarImage, prepareCoverImage, validateImageFile,
+  prepareAvatarImage, prepareCoverImage, validateImageFile, fileToDataUrl,
 } from '@/lib/prepareProfileImage';
 import {
   SKILL_AREAS, PROFICIENCY_LEVELS, LANGUAGE_OPTIONS, SocialLinks,
@@ -255,15 +255,16 @@ export function EditProfilePage() {
       const prepared = kind === 'avatar'
         ? await prepareAvatarImage(file)
         : await prepareCoverImage(file);
-      const { url } = await uploadFile(prepared);
+      // Evita /api/upload na Vercel (multipart+/tmp). Grava data URL comprimida no Neon.
+      const url = await fileToDataUrl(prepared);
       await persistPhoto(field, url);
       setPreview((p) => {
         const next = { ...p };
         delete next[kind];
         return next;
       });
-    } catch {
-      setUploadError(t('editProfile.uploadError_failed'));
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : t('editProfile.uploadError_failed'));
       setForm((f) => ({ ...f, [field]: previousUrl }));
       setPreview((p) => {
         const next = { ...p };

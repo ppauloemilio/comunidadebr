@@ -2,7 +2,6 @@ import { Router } from 'express';
 import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
-import { put } from '@vercel/blob';
 import { v4 as uuid } from 'uuid';
 import { getDb, parseJson } from '../db/database.js';
 import { authMiddleware, AuthRequest } from '../middleware/auth.js';
@@ -10,18 +9,11 @@ import { uploadsDir } from '../lib/uploads.js';
 import { getMonetizationSettings, isPremiumProfile } from '../lib/settings.js';
 import { getActiveAdvertisements } from '../lib/advertisements.js';
 
-const isServerless = !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const isServerless = () => !!(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
 
+// Sempre em memória — no serverless o disco é read-only fora de /tmp
 const upload = multer({
-  storage: isServerless
-    ? multer.memoryStorage()
-    : multer.diskStorage({
-        destination: (_req, _file, cb) => cb(null, uploadsDir),
-        filename: (_req, file, cb) => {
-          const ext = path.extname(file.originalname) || '.jpg';
-          cb(null, `${uuid()}${ext}`);
-        },
-      }),
+  storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
 });
 
@@ -209,45 +201,59 @@ router.get('/feed/sidebar', authMiddleware, async (req: AuthRequest, res) => {
   res.json({ trending, users, country });
 });
 
-router.post('/upload', authMiddleware, upload.single('file'), async (req, res) => {
-  if (!req.file) return res.status(400).json({ error: 'Arquivo obrigatório' });
-
-  const mime = req.file.mimetype || 'image/jpeg';
-  const ext =
-    path.extname(req.file.originalname) ||
-    (mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg');
-  const filename = `${uuid()}${ext}`;
-  const buffer = req.file.buffer ?? (req.file.filename
-    ? fs.readFileSync(path.join(uploadsDir, req.file.filename))
-    : null);
-
-  if (!buffer) return res.status(500).json({ error: 'Upload inválido' });
-
-  // Preferência: Vercel Blob (URL pública permanente)
-  if (process.env.BLOB_READ_WRITE_TOKEN) {
-    try {
-      const blob = await put(`uploads/${filename}`, buffer, {
-        access: 'public',
-        contentType: mime,
-        token: process.env.BLOB_READ_WRITE_TOKEN,
-      });
-      return res.json({ url: blob.url });
-    } catch (err) {
-      console.error('Blob upload failed:', err);
+router.post('/upload', authMiddleware, (req, res, next) => {
+  upload.single('file')(req, res, (err) => {
+    if (err) {
+      const message = err instanceof Error ? err.message : 'Falha no upload';
+      return res.status(400).json({ error: message });
     }
-  }
-
-  // No serverless sem Blob, /tmp é efêmero — guarda data URL no banco
-  if (isServerless) {
-    if (buffer.length > 1.5 * 1024 * 1024) {
-      return res.status(413).json({
-        error: 'Imagem muito grande. Use JPG/PNG menor (máx. ~1.5MB após compressão).',
-      });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file?.buffer?.length) {
+      return res.status(400).json({ error: 'Arquivo obrigatório' });
     }
-    return res.json({ url: `data:${mime};base64,${buffer.toString('base64')}` });
-  }
 
-  res.json({ url: `/uploads/${req.file.filename}` });
+    const mime = req.file.mimetype || 'image/jpeg';
+    const ext =
+      path.extname(req.file.originalname) ||
+      (mime === 'image/png' ? '.png' : mime === 'image/webp' ? '.webp' : '.jpg');
+    const filename = `${uuid()}${ext}`;
+    const buffer = req.file.buffer;
+
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const { put } = await import('@vercel/blob');
+        const blob = await put(`uploads/${filename}`, buffer, {
+          access: 'public',
+          contentType: mime,
+          token: process.env.BLOB_READ_WRITE_TOKEN,
+        });
+        return res.json({ url: blob.url });
+      } catch (err) {
+        console.error('Blob upload failed:', err);
+      }
+    }
+
+    // Serverless sem Blob: data URL pequena (posts/anúncios). Perfil usa PATCH direto no client.
+    if (isServerless()) {
+      if (buffer.length > 900_000) {
+        return res.status(413).json({
+          error: 'Imagem muito grande. Comprima antes de enviar.',
+        });
+      }
+      return res.json({ url: `data:${mime};base64,${buffer.toString('base64')}` });
+    }
+
+    fs.writeFileSync(path.join(uploadsDir, filename), buffer);
+    return res.json({ url: `/uploads/${filename}` });
+  } catch (err) {
+    console.error('Upload error:', err);
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : 'Falha no upload',
+    });
+  }
 });
 
 router.get('/health', (_req, res) => {
