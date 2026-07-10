@@ -31,6 +31,10 @@ app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(uploadsDir));
 
+app.get('/api/health', (_req, res) => {
+  res.json({ ok: true, service: 'comunidade-br-api' });
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/posts', postsRoutes);
 app.use('/api/users', usersRoutes);

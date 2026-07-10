@@ -8,6 +8,9 @@
     "build": "echo \"server: no build step\"",
     "start": "tsx src/index.ts"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",
@@ -17,6 +20,8 @@
     "multer": "^1.4.5-lts.1",
     "nodemailer": "^9.0.3",
     "socket.io": "^4.8.1",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2",
     "uuid": "^11.1.0"
   },
   "devDependencies": {
@@ -27,8 +32,6 @@
     "@types/multer": "^1.4.12",
     "@types/node": "^22.13.10",
     "@types/nodemailer": "^8.0.1",
-    "@types/uuid": "^10.0.0",
-    "tsx": "^4.19.3",
-    "typescript": "^5.8.2"
+    "@types/uuid": "^10.0.0"
   }
 }
