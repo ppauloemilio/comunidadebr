@@ -177,28 +177,139 @@ router.get('/search', authMiddleware, async (req: AuthRequest, res) => {
 
 router.get('/feed/sidebar', authMiddleware, async (req: AuthRequest, res) => {
   const db = await getDb();
-  const profile = (await db.prepare('SELECT current_country FROM public_profiles WHERE user_id = ?').get(req.user!.id)) as
-    | { current_country: string }
+  const me = (await db.prepare(
+    `SELECT current_country, current_state, current_city, origin_city, origin_state
+     FROM public_profiles WHERE user_id = ?`
+  ).get(req.user!.id)) as
+    | {
+        current_country: string;
+        current_state: string;
+        current_city: string;
+        origin_city: string;
+        origin_state: string;
+      }
     | undefined;
-  const country = profile?.current_country || 'BR';
 
-  const trending = await db.prepare(
-    `SELECT id, content, likes_count FROM posts WHERE is_active = 1 AND country = ?
-     ORDER BY likes_count DESC LIMIT 5`
-  ).all(country);
+  const country = (me?.current_country || '').trim();
+  const currentState = (me?.current_state || '').trim();
+  const currentCity = (me?.current_city || '').trim();
+  const originCity = (me?.origin_city || '').trim();
+  const originState = (me?.origin_state || '').trim();
 
-  const users = await db.prepare(
-    `SELECT u.id, u.username, u.full_name, u.avatar_url, p.current_country,
-            b.address as address
-     FROM users u
-     JOIN public_profiles p ON p.user_id = u.id
-     LEFT JOIN businesses b ON b.owner_id = u.id AND b.is_active = 1
-     WHERE p.current_country = ? AND u.id != ?
-     GROUP BY u.id
-     LIMIT 10`
-  ).all(country, req.user!.id);
+  const trending = country
+    ? await db.prepare(
+        `SELECT id, content, likes_count FROM posts WHERE is_active = 1 AND country = ?
+         ORDER BY likes_count DESC LIMIT 5`
+      ).all(country)
+    : [];
 
-  res.json({ trending, users, country });
+  const norm = (v: unknown) => String(v || '').trim().toLowerCase();
+  const meCountry = country.toUpperCase();
+  const meCity = norm(currentCity);
+  const meState = norm(currentState);
+  const meOriginCity = norm(originCity);
+
+  const conditions: string[] = ['u.id != ?', 'COALESCE(u.is_active, 1) = 1'];
+  const params: string[] = [req.user!.id];
+  const orParts: string[] = [];
+
+  if (meCountry && meCity) {
+    orParts.push('(UPPER(TRIM(p.current_country)) = ? AND LOWER(TRIM(p.current_city)) = ?)');
+    params.push(meCountry, meCity);
+  }
+  if (meCountry && meState) {
+    orParts.push('(UPPER(TRIM(p.current_country)) = ? AND LOWER(TRIM(p.current_state)) = ?)');
+    params.push(meCountry, meState);
+  }
+  if (meOriginCity) {
+    orParts.push('LOWER(TRIM(p.origin_city)) = ?');
+    params.push(meOriginCity);
+  }
+
+  type Row = {
+    id: string;
+    username: string;
+    full_name: string;
+    avatar_url: string | null;
+    current_country: string;
+    current_state: string;
+    current_city: string;
+    origin_city: string;
+    origin_state: string;
+    show_city_on_profile: number;
+  };
+
+  let rows: Row[] = [];
+  if (orParts.length) {
+    conditions.push(`(${orParts.join(' OR ')})`);
+    rows = (await db.prepare(
+      `SELECT u.id, u.username, u.full_name, u.avatar_url,
+              p.current_country, p.current_state, p.current_city,
+              p.origin_city, p.origin_state, p.show_city_on_profile
+       FROM users u
+       JOIN public_profiles p ON p.user_id = u.id
+       WHERE ${conditions.join(' AND ')}
+       ORDER BY u.full_name ASC
+       LIMIT 40`
+    ).all(...params)) as Row[];
+  }
+
+  const scored = rows.map((u) => {
+    const sameCity =
+      !!meCountry && !!meCity
+      && String(u.current_country || '').toUpperCase() === meCountry
+      && norm(u.current_city) === meCity;
+    const sameState =
+      !!meCountry && !!meState
+      && String(u.current_country || '').toUpperCase() === meCountry
+      && norm(u.current_state) === meState;
+    const sameOrigin = !!meOriginCity && norm(u.origin_city) === meOriginCity;
+
+    let match_reason: 'city' | 'state' | 'origin' = 'origin';
+    let rank = 3;
+    if (sameCity) {
+      match_reason = 'city';
+      rank = 0;
+    } else if (sameState) {
+      match_reason = 'state';
+      rank = 1;
+    } else if (sameOrigin) {
+      match_reason = 'origin';
+      rank = 2;
+    }
+
+    const showCity = !!(u.show_city_on_profile ?? 1);
+    const city = showCity ? (u.current_city || '') : '';
+    const state = u.current_state || '';
+    const address = [city, state].filter(Boolean).join(', ') || u.current_country || '';
+
+    return {
+      id: u.id,
+      username: u.username,
+      full_name: u.full_name,
+      avatar_url: u.avatar_url,
+      current_country: u.current_country,
+      current_city: city,
+      current_state: state,
+      origin_city: u.origin_city || '',
+      origin_state: u.origin_state || '',
+      address,
+      match_reason,
+      rank,
+    };
+  });
+
+  scored.sort((a, b) => a.rank - b.rank || a.full_name.localeCompare(b.full_name));
+
+  res.json({
+    trending,
+    users: scored.slice(0, 10).map(({ rank: _rank, ...u }) => u),
+    country,
+    current_city: currentCity,
+    current_state: currentState,
+    origin_city: originCity,
+    origin_state: originState,
+  });
 });
 
 router.post('/upload', authMiddleware, (req, res, next) => {
