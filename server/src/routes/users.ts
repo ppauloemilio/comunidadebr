@@ -86,17 +86,65 @@ router.get('/:id/posts', authMiddleware, async (req: AuthRequest, res) => {
   ).get(req.params.id)) as { is_premium: number; premium_until: string | null } | undefined;
   const authorIsPremium = await isPremiumProfile(authorProfile);
 
+  const sharedIds = [...new Set(
+    posts
+      .map((p) => (p as { shared_post_id?: string }).shared_post_id)
+      .filter(Boolean)
+  )] as string[];
+  const sharedById = new Map<string, Record<string, unknown>>();
+  if (sharedIds.length) {
+    const placeholders = sharedIds.map(() => '?').join(',');
+    const sharedRows = (await db.prepare(
+      `SELECT * FROM posts WHERE id IN (${placeholders}) AND is_active = 1`
+    ).all(...sharedIds)) as Record<string, unknown>[];
+    for (const row of sharedRows) sharedById.set(row.id as string, row);
+  }
+
   res.json(
-    posts.map((p) => ({
-      ...p,
-      images: parseJson((p as { images: string }).images, []),
-      author_snapshot: {
-        ...parseJson((p as { author_snapshot: string }).author_snapshot, {}),
-        is_premium: authorIsPremium,
-      },
-      author_is_premium: authorIsPremium,
-      liked_by_me: likedSet.has((p as { id: string }).id),
-    }))
+    posts.map((p) => {
+      const row = p as Record<string, unknown>;
+      const sharedId = (row.shared_post_id as string) || null;
+      const sharedRow = sharedId ? sharedById.get(sharedId) : undefined;
+      return {
+        id: row.id,
+        content: row.content,
+        type: row.type,
+        images: parseJson(row.images as string, []),
+        author_id: row.author_id,
+        business_id: row.business_id,
+        country: row.country,
+        likes_count: row.likes_count,
+        comments_count: row.comments_count,
+        created_at: row.created_at,
+        updated_at: row.updated_at || null,
+        author_snapshot: {
+          ...parseJson(row.author_snapshot as string, {}),
+          is_premium: authorIsPremium,
+        },
+        author_is_premium: authorIsPremium,
+        liked_by_me: likedSet.has(row.id as string),
+        shared_post_id: sharedId,
+        shared_post: sharedRow
+          ? {
+              id: sharedRow.id,
+              content: sharedRow.content,
+              type: sharedRow.type,
+              images: parseJson(sharedRow.images as string, []),
+              author_id: sharedRow.author_id,
+              business_id: sharedRow.business_id,
+              country: sharedRow.country,
+              likes_count: sharedRow.likes_count,
+              comments_count: sharedRow.comments_count,
+              created_at: sharedRow.created_at,
+              updated_at: sharedRow.updated_at || null,
+              author_snapshot: parseJson(sharedRow.author_snapshot as string, {}),
+              liked_by_me: likedSet.has(sharedRow.id as string),
+              shared_post_id: null,
+              shared_post: null,
+            }
+          : null,
+      };
+    })
   );
 });
 

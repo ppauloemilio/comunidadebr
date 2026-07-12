@@ -20,6 +20,7 @@ import { PromoteBusinessPage } from '@/pages/PromoteBusinessPage';
 import { EditProfilePage } from '@/pages/EditProfilePage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { AdminPage } from '@/pages/AdminPage';
+import { PostPage } from '@/pages/PostPage';
 import { SetupPasswordPage } from '@/pages/SetupPasswordPage';
 
 const queryClient = new QueryClient({
@@ -67,6 +68,7 @@ export default function App() {
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<Navigate to="/feed" replace />} />
               <Route path="feed" element={<FeedPage />} />
+              <Route path="post/:id" element={<PostPage />} />
               <Route path="business-map" element={<BusinessMapPage />} />
               <Route path="explore" element={<ExplorePage />} />
               <Route path="community" element={<CommunityPage />} />

@@ -318,9 +318,10 @@ async function migrate(database: Db) {
     CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id, created_at);
   `);
 
-  // Colunas extras para edição de posts e respostas em comentários
+  // Colunas extras para edição de posts, respostas e compartilhamentos
   try {
     await database.exec(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS updated_at TEXT`);
+    await database.exec(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS shared_post_id TEXT`);
     await database.exec(`ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id TEXT`);
     await database.exec(`CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, created_at)`);
     await database.exec(`CREATE INDEX IF NOT EXISTS idx_likes_post ON likes(post_id, created_at)`);

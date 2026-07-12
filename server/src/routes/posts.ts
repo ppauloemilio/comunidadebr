@@ -21,7 +21,33 @@ async function authorPremiumMap(db: Db, authorIds: string[]) {
   return map;
 }
 
-async function formatPost(row: Record<string, unknown>, likedByMe = false, authorIsPremium = false) {
+type FormattedPost = {
+  id: unknown;
+  content: unknown;
+  type: unknown;
+  images: unknown;
+  author_id: unknown;
+  business_id: unknown;
+  country: unknown;
+  likes_count: unknown;
+  comments_count: unknown;
+  is_active: unknown;
+  is_promoted: boolean;
+  author_is_premium: boolean;
+  author_snapshot: Record<string, unknown>;
+  created_at: unknown;
+  updated_at: unknown;
+  liked_by_me: boolean;
+  shared_post_id: string | null;
+  shared_post: FormattedPost | null;
+};
+
+async function formatPost(
+  row: Record<string, unknown>,
+  likedByMe = false,
+  authorIsPremium = false,
+  sharedPost: FormattedPost | null = null
+): Promise<FormattedPost> {
   const settings = await getMonetizationSettings();
   const promotedInDb = !!(row.is_promoted && (
     !row.promoted_until || new Date(row.promoted_until as string) >= new Date()
@@ -44,7 +70,53 @@ async function formatPost(row: Record<string, unknown>, likedByMe = false, autho
     created_at: row.created_at,
     updated_at: row.updated_at || null,
     liked_by_me: likedByMe,
+    shared_post_id: (row.shared_post_id as string) || null,
+    shared_post: sharedPost,
   };
+}
+
+/** Resolve o post original (evita compartilhar um compartilhamento). */
+async function resolveShareTarget(db: Db, post: Record<string, unknown>) {
+  const nestedId = post.shared_post_id as string | null | undefined;
+  if (!nestedId) return post;
+  const original = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(nestedId)) as
+    | Record<string, unknown>
+    | undefined;
+  return original || post;
+}
+
+async function attachSharedPosts(
+  db: Db,
+  posts: FormattedPost[],
+  likedSet: Set<string>
+) {
+  const ids = [...new Set(posts.map((p) => p.shared_post_id).filter(Boolean))] as string[];
+  if (!ids.length) return posts;
+
+  const placeholders = ids.map(() => '?').join(',');
+  const rows = (await db.prepare(
+    `SELECT * FROM posts WHERE id IN (${placeholders}) AND is_active = 1`
+  ).all(...ids)) as Record<string, unknown>[];
+  const byId = new Map(rows.map((r) => [r.id as string, r]));
+  const premiumByAuthor = await authorPremiumMap(
+    db,
+    rows.map((r) => r.author_id as string)
+  );
+
+  return Promise.all(
+    posts.map(async (p) => {
+      if (!p.shared_post_id) return p;
+      const row = byId.get(p.shared_post_id);
+      if (!row) return { ...p, shared_post: null };
+      const nested = await formatPost(
+        row,
+        likedSet.has(row.id as string),
+        premiumByAuthor.get(row.author_id as string) ?? false,
+        null
+      );
+      return { ...p, shared_post: nested };
+    })
+  );
 }
 
 router.get('/', authMiddleware, async (req: AuthRequest, res) => {
@@ -85,22 +157,33 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
     posts.map((p) => p.author_id as string)
   );
 
-  res.json(
-    await Promise.all(
-      posts.map((p) => formatPost(
-        p as Record<string, unknown>,
-        likedSet.has(p.id as string),
-        premiumByAuthor.get(p.author_id as string) ?? false
-      ))
-    )
+  const formatted = await Promise.all(
+    posts.map((p) => formatPost(
+      p as Record<string, unknown>,
+      likedSet.has(p.id as string),
+      premiumByAuthor.get(p.author_id as string) ?? false
+    ))
   );
+
+  res.json(await attachSharedPosts(db, formatted, likedSet));
 });
 
 router.post('/', authMiddleware, async (req: AuthRequest, res) => {
-  const { content, type = 'text', images = [], business_id } = req.body;
-  if (!content?.trim()) return res.status(400).json({ error: 'Conteúdo obrigatório' });
+  const { content, type = 'text', images = [], business_id, shared_post_id } = req.body;
+  const hasShare = !!shared_post_id;
+  if (!hasShare && !content?.trim()) return res.status(400).json({ error: 'Conteúdo obrigatório' });
 
   const db = await getDb();
+  let shareTargetId: string | null = null;
+  if (hasShare) {
+    const target = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(shared_post_id)) as
+      | Record<string, unknown>
+      | undefined;
+    if (!target) return res.status(404).json({ error: 'Publicação original não encontrada' });
+    const resolved = await resolveShareTarget(db, target);
+    shareTargetId = resolved.id as string;
+  }
+
   const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
   const profile = (await db.prepare('SELECT current_country, current_city FROM public_profiles WHERE user_id = ?').get(user.id)) as
     | { current_country: string; current_city: string }
@@ -108,12 +191,12 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
   const id = uuid();
   await db.prepare(
-    `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot, shared_post_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
-    content.trim(),
-    type,
+    (content || '').trim(),
+    shareTargetId ? 'share' : type,
     JSON.stringify(images),
     user.id,
     business_id || null,
@@ -122,12 +205,15 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       ...user,
       city: profile?.current_city,
       country: profile?.current_country,
-    })
+    }),
+    shareTargetId
   );
 
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
   const premium = (await authorPremiumMap(db, [user.id])).get(user.id) ?? false;
-  res.status(201).json(await formatPost(post as Record<string, unknown>, false, premium));
+  const formatted = await formatPost(post as Record<string, unknown>, false, premium);
+  const [withShared] = await attachSharedPosts(db, [formatted], new Set());
+  res.status(201).json(withShared);
 });
 
 router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
@@ -137,6 +223,31 @@ router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
   if (post.author_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
   await db.prepare('UPDATE posts SET is_active = 0 WHERE id = ?').run(req.params.id);
   res.json({ ok: true });
+});
+
+router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
+    | Record<string, unknown>
+    | undefined;
+  if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+
+  const liked = !!(await db.prepare('SELECT id FROM likes WHERE post_id = ? AND user_id = ?').get(req.params.id, req.user!.id));
+  const premiumByAuthor = await authorPremiumMap(db, [post.author_id as string]);
+  const formatted = await formatPost(
+    post,
+    liked,
+    premiumByAuthor.get(post.author_id as string) ?? false
+  );
+  const likedSet = new Set<string>(liked ? [req.params.id as string] : []);
+  if (formatted.shared_post_id) {
+    const sharedLiked = !!(await db.prepare(
+      'SELECT id FROM likes WHERE post_id = ? AND user_id = ?'
+    ).get(formatted.shared_post_id, req.user!.id));
+    if (sharedLiked) likedSet.add(formatted.shared_post_id);
+  }
+  const [withShared] = await attachSharedPosts(db, [formatted], likedSet);
+  res.json(withShared);
 });
 
 router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
@@ -149,7 +260,7 @@ router.patch('/:id', authMiddleware, async (req: AuthRequest, res) => {
   if (post.author_id !== req.user!.id) return res.status(403).json({ error: 'Sem permissão' });
 
   const nextContent = content !== undefined ? String(content).trim() : String(post.content || '');
-  if (!nextContent) return res.status(400).json({ error: 'Conteúdo obrigatório' });
+  if (!nextContent && !post.shared_post_id) return res.status(400).json({ error: 'Conteúdo obrigatório' });
 
   const nextImages = images !== undefined ? images : parseJson(post.images as string, [] as string[]);
   await db.prepare(
@@ -311,17 +422,53 @@ router.delete('/:id/comments/:commentId', authMiddleware, async (req: AuthReques
 });
 
 router.post('/:id/share', authMiddleware, async (req: AuthRequest, res) => {
+  const { comment = '' } = (req.body || {}) as { comment?: string };
   const db = await getDb();
-  const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(req.params.id);
+  const post = (await db.prepare('SELECT * FROM posts WHERE id = ? AND is_active = 1').get(req.params.id)) as
+    | Record<string, unknown>
+    | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
 
-  const id = uuid();
+  const target = await resolveShareTarget(db, post);
+  const targetId = target.id as string;
+
+  const shareId = uuid();
   await db.prepare('INSERT INTO shares (id, post_id, user_id, post_snapshot) VALUES (?, ?, ?, ?)').run(
-    id, req.params.id, req.user!.id, JSON.stringify(post)
+    shareId, targetId, req.user!.id, JSON.stringify(target)
   );
-  const postId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
-  await createNotification((post as { author_id: string }).author_id, req.user!.id, 'share', 'post', postId);
-  res.status(201).json({ ok: true });
+
+  const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
+  const profile = (await db.prepare('SELECT current_country, current_city FROM public_profiles WHERE user_id = ?').get(user.id)) as
+    | { current_country: string; current_city: string }
+    | undefined;
+
+  const newPostId = uuid();
+  await db.prepare(
+    `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot, shared_post_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    newPostId,
+    String(comment || '').trim(),
+    'share',
+    '[]',
+    user.id,
+    null,
+    profile?.current_country || 'BR',
+    userSnapshot({
+      ...user,
+      city: profile?.current_city,
+      country: profile?.current_country,
+    }),
+    targetId
+  );
+
+  await createNotification(target.author_id as string, req.user!.id, 'share', 'post', targetId);
+
+  const created = await db.prepare('SELECT * FROM posts WHERE id = ?').get(newPostId);
+  const premium = (await authorPremiumMap(db, [user.id])).get(user.id) ?? false;
+  const formatted = await formatPost(created as Record<string, unknown>, false, premium);
+  const [withShared] = await attachSharedPosts(db, [formatted], new Set());
+  res.status(201).json(withShared);
 });
 
 export default router;

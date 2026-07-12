@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Heart, MessageCircle, Share2, MoreHorizontal, MapPin, Trash2, Pencil, X, Reply,
+  Heart, MessageCircle, MoreHorizontal, MapPin, Trash2, Pencil, X, Reply, Repeat2,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/Avatar';
@@ -11,6 +11,7 @@ import { Card, CardContent } from '@/components/ui/Card';
 import { Textarea } from '@/components/ui/Textarea';
 import { PostRichEditor } from '@/components/post/PostRichEditor';
 import { PostContent } from '@/components/post/PostContent';
+import { ShareMenu } from '@/components/feed/ShareMenu';
 import { timeAgo, COUNTRY_LABELS } from '@/lib/utils';
 import {
   extractImagesFromHtml,
@@ -43,6 +44,8 @@ export type Post = {
   liked_by_me?: boolean;
   is_promoted?: boolean;
   author_is_premium?: boolean;
+  shared_post_id?: string | null;
+  shared_post?: Post | null;
 };
 
 type Comment = {
@@ -110,10 +113,6 @@ export function PostCard({ post }: { post: Post }) {
         ? api(`/posts/${post.id}/like`, { method: 'DELETE' })
         : api(`/posts/${post.id}/like`, { method: 'POST' }),
     onSuccess: () => invalidatePostQueries(qc, post.id),
-  });
-
-  const shareMutation = useMutation({
-    mutationFn: () => api(`/posts/${post.id}/share`, { method: 'POST' }),
   });
 
   const deleteMutation = useMutation({
@@ -269,7 +268,9 @@ export function PostCard({ post }: { post: Post }) {
               </Button>
               <Button
                 className="rounded-full"
-                disabled={isEditorEmpty(editContent) || editMutation.isPending}
+                disabled={
+                  (!post.shared_post_id && isEditorEmpty(editContent)) || editMutation.isPending
+                }
                 onClick={() => editMutation.mutate()}
               >
                 {t('feed.saveEdit')}
@@ -277,14 +278,64 @@ export function PostCard({ post }: { post: Post }) {
             </div>
           </div>
         ) : (
-          <PostContent
-            content={post.content}
-            images={post.images}
-            collapseLen={COLLAPSE_LEN}
-            expanded={expanded}
-            onExpand={() => setExpanded(true)}
-            seeMoreLabel={t('feed.seeMore')}
-          />
+          <>
+            {post.content?.trim() ? (
+              <PostContent
+                content={post.content}
+                images={post.images}
+                collapseLen={COLLAPSE_LEN}
+                expanded={expanded}
+                onExpand={() => setExpanded(true)}
+                seeMoreLabel={t('feed.seeMore')}
+              />
+            ) : null}
+
+            {post.shared_post && (
+              <div className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+                <div className="flex items-center gap-2 border-b border-slate-200/80 px-3 py-2 text-xs font-medium text-slate-500">
+                  <Repeat2 className="h-3.5 w-3.5" />
+                  {t('feed.sharedPost')}
+                </div>
+                <div className="space-y-2 p-3">
+                  <div className="flex items-start gap-2">
+                    <Avatar
+                      name={post.shared_post.author_snapshot.full_name}
+                      src={post.shared_post.author_snapshot.avatar_url}
+                      className="h-9 w-9"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold leading-tight">
+                        {post.shared_post.author_snapshot.full_name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        @{post.shared_post.author_snapshot.username}
+                        {' · '}
+                        {timeAgo(post.shared_post.created_at, i18n.language)}
+                      </p>
+                    </div>
+                  </div>
+                  <PostContent
+                    content={post.shared_post.content}
+                    images={post.shared_post.images}
+                    collapseLen={280}
+                    expanded
+                    seeMoreLabel={t('feed.seeMore')}
+                  />
+                </div>
+              </div>
+            )}
+
+            {!post.content?.trim() && !post.shared_post && (
+              <PostContent
+                content={post.content}
+                images={post.images}
+                collapseLen={COLLAPSE_LEN}
+                expanded={expanded}
+                onExpand={() => setExpanded(true)}
+                seeMoreLabel={t('feed.seeMore')}
+              />
+            )}
+          </>
         )}
 
         {(post.likes_count > 0 || post.comments_count > 0) && (
@@ -325,10 +376,7 @@ export function PostCard({ post }: { post: Post }) {
             <MessageCircle className="h-4 w-4" />
             <span className="text-slate-600">{t('feed.comment')}</span>
           </Button>
-          <Button variant="ghost" size="sm" className="rounded-full" onClick={() => shareMutation.mutate()}>
-            <Share2 className="h-4 w-4" />
-            <span className="text-slate-600">{t('feed.share')}</span>
-          </Button>
+          <ShareMenu post={post} />
         </div>
 
         {showComments && (
