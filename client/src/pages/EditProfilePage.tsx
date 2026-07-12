@@ -21,7 +21,8 @@ import {
   parseCoverPosition,
 } from '@/lib/coverPosition';
 import {
-  SKILL_AREAS, PROFICIENCY_LEVELS, LANGUAGE_OPTIONS, SocialLinks,
+  SKILL_AREAS, PROFICIENCY_LEVELS, LANGUAGE_OPTIONS, LANGUAGE_OTHER_VALUE,
+  normalizeLanguageName, SocialLinks,
 } from '@/lib/profileConstants';
 import { cn } from '@/lib/utils';
 import { LocationCascade } from '@/components/profile/LocationCascade';
@@ -92,6 +93,8 @@ export function EditProfilePage() {
   } | null>(null);
   const [coverSaving, setCoverSaving] = useState(false);
   const [langInput, setLangInput] = useState('');
+  const [showCustomLang, setShowCustomLang] = useState(false);
+  const [customLang, setCustomLang] = useState('');
   const [newSkill, setNewSkill] = useState({ name: '', level: 'intermediate', years: '' });
 
   const [currentLoc, setCurrentLoc] = useState(EMPTY_LOC);
@@ -129,7 +132,9 @@ export function EditProfilePage() {
       show_city_on_profile: me.profile?.show_city_on_profile ?? true,
       show_whatsapp_on_profile: me.profile?.show_whatsapp_on_profile ?? false,
       social_links: me.profile?.social_links || {},
-      languages: me.profile?.languages?.length ? me.profile.languages : ['Português'],
+      languages: me.profile?.languages?.length
+        ? [...new Set(me.profile.languages.map(normalizeLanguageName))]
+        : ['Português'],
     });
 
     const hydrate = async () => {
@@ -530,7 +535,7 @@ export function EditProfilePage() {
 
               <div>
                 <label className="mb-1 block text-sm font-medium">{t('editProfile.languages')}</label>
-                <div className="flex flex-wrap gap-2 mb-2">
+                <div className="mb-2 flex flex-wrap gap-2">
                   {form.languages.map((lang) => (
                     <span key={lang} className="inline-flex items-center gap-1 rounded-full bg-brand-100 px-3 py-1 text-sm text-brand-800">
                       {lang}
@@ -545,7 +550,16 @@ export function EditProfilePage() {
                   value={langInput}
                   onChange={(e) => {
                     const v = e.target.value;
-                    if (v && !form.languages.includes(v)) setForm({ ...form, languages: [...form.languages, v] });
+                    if (v === LANGUAGE_OTHER_VALUE) {
+                      setShowCustomLang(true);
+                      setLangInput(LANGUAGE_OTHER_VALUE);
+                      return;
+                    }
+                    setShowCustomLang(false);
+                    setCustomLang('');
+                    if (v && !form.languages.includes(v)) {
+                      setForm({ ...form, languages: [...form.languages, v] });
+                    }
                     setLangInput('');
                   }}
                 >
@@ -553,7 +567,43 @@ export function EditProfilePage() {
                   {LANGUAGE_OPTIONS.filter((l) => !form.languages.includes(l)).map((l) => (
                     <option key={l} value={l}>{l}</option>
                   ))}
+                  <option value={LANGUAGE_OTHER_VALUE}>{t('editProfile.otherLanguage')}</option>
                 </select>
+                {showCustomLang && (
+                  <div className="mt-2 flex gap-2">
+                    <Input
+                      value={customLang}
+                      onChange={(e) => setCustomLang(e.target.value)}
+                      placeholder={t('editProfile.otherLanguagePlaceholder')}
+                      className="flex-1"
+                      onKeyDown={(e) => {
+                        if (e.key !== 'Enter') return;
+                        e.preventDefault();
+                        const name = customLang.trim();
+                        if (!name || form.languages.includes(name)) return;
+                        setForm({ ...form, languages: [...form.languages, name] });
+                        setCustomLang('');
+                        setShowCustomLang(false);
+                        setLangInput('');
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      className="rounded-full"
+                      disabled={!customLang.trim() || form.languages.includes(customLang.trim())}
+                      onClick={() => {
+                        const name = customLang.trim();
+                        if (!name || form.languages.includes(name)) return;
+                        setForm({ ...form, languages: [...form.languages, name] });
+                        setCustomLang('');
+                        setShowCustomLang(false);
+                        setLangInput('');
+                      }}
+                    >
+                      {t('editProfile.addLanguage')}
+                    </Button>
+                  </div>
+                )}
               </div>
             </>
           )}

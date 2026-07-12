@@ -290,6 +290,8 @@
     "selectArea": "Selecione...",
     "languages": "Idiomas que fala",
     "addLanguage": "Adicionar idioma",
+    "otherLanguage": "Outros",
+    "otherLanguagePlaceholder": "Digite o idioma",
     "whereYouLive": "Onde você mora atualmente",
     "stateRegion": "Estado/Região",
     "city": "Cidade",

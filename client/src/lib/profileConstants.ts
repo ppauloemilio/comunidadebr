@@ -10,8 +10,43 @@ export const PROFICIENCY_LEVELS = [
 ];
 
 export const LANGUAGE_OPTIONS = [
-  'Português', 'English', 'Español', 'Deutsch', 'Français', 'Italiano',
+  'Português',
+  'Inglês',
+  'Espanhol',
+  'Alemão',
+  'Francês',
+  'Italiano',
+  'Japonês',
+  'Mandarim',
+  'Árabe',
+  'Russo',
+  'Holandês',
+  'Sueco',
+  'Norueguês',
+  'Dinamarquês',
+  'Polonês',
+  'Turco',
+  'Coreano',
+  'Hindi',
 ];
+
+/** Valor especial do select — abre campo para digitar o idioma. */
+export const LANGUAGE_OTHER_VALUE = '__other__';
+
+const LEGACY_LANGUAGE_MAP: Record<string, string> = {
+  English: 'Inglês',
+  Español: 'Espanhol',
+  Deutsch: 'Alemão',
+  Français: 'Francês',
+  Italiano: 'Italiano',
+  Portuguese: 'Português',
+  Português: 'Português',
+};
+
+export function normalizeLanguageName(name: string): string {
+  const trimmed = name.trim();
+  return LEGACY_LANGUAGE_MAP[trimmed] || trimmed;
+}
 
 export const BR_STATES: Record<string, string[]> = {
   BA: ['Salvador', 'Feira de Santana', 'Ilhéus'],
