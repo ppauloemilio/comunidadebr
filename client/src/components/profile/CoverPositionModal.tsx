@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Move, X } from 'lucide-react';
+import { Move, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { mediaUrl } from '@/lib/api';
 import {
   type CoverPosition,
-  formatCoverPosition,
+  COVER_SCALE_MAX,
+  COVER_SCALE_MIN,
+  COVER_SCALE_STEP,
+  coverImageStyle,
   parseCoverPosition,
 } from '@/lib/coverPosition';
 import { cn } from '@/lib/utils';
@@ -18,6 +21,10 @@ type Props = {
   confirming?: boolean;
 };
 
+function clampScale(n: number) {
+  return Math.min(COVER_SCALE_MAX, Math.max(COVER_SCALE_MIN, Math.round(n * 100) / 100));
+}
+
 export function CoverPositionModal({
   imageSrc,
   initialPosition,
@@ -26,11 +33,16 @@ export function CoverPositionModal({
   confirming,
 }: Props) {
   const { t } = useTranslation();
-  const [pos, setPos] = useState<CoverPosition>(() =>
-    typeof initialPosition === 'object' && initialPosition
-      ? initialPosition
-      : parseCoverPosition(initialPosition as string | null | undefined)
-  );
+  const [pos, setPos] = useState<CoverPosition>(() => {
+    if (typeof initialPosition === 'object' && initialPosition) {
+      return {
+        x: initialPosition.x,
+        y: initialPosition.y,
+        scale: clampScale(initialPosition.scale ?? 1),
+      };
+    }
+    return parseCoverPosition(initialPosition as string | null | undefined);
+  });
   const dragRef = useRef<{
     startX: number;
     startY: number;
@@ -61,20 +73,26 @@ export function CoverPositionModal({
     const rect = frameRef.current.getBoundingClientRect();
     const dx = ((clientX - dragRef.current.startX) / rect.width) * 100;
     const dy = ((clientY - dragRef.current.startY) / rect.height) * 100;
-    // Arrastar a imagem: o ponto de interesse se move no sentido oposto
-    setPos({
-      x: Math.min(100, Math.max(0, dragRef.current.originX - dx)),
-      y: Math.min(100, Math.max(0, dragRef.current.originY - dy)),
-    });
+    setPos((current) => ({
+      ...current,
+      x: Math.min(100, Math.max(0, dragRef.current!.originX - dx)),
+      y: Math.min(100, Math.max(0, dragRef.current!.originY - dy)),
+    }));
   };
 
   const endDrag = () => {
     dragRef.current = null;
   };
 
+  const setScale = (next: number) => {
+    setPos((current) => ({ ...current, scale: clampScale(next) }));
+  };
+
   const resolvedSrc = imageSrc.startsWith('blob:') || imageSrc.startsWith('data:')
     ? imageSrc
     : mediaUrl(imageSrc);
+
+  const scalePct = Math.round(pos.scale * 100);
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-4 sm:items-center">
@@ -109,13 +127,17 @@ export function CoverPositionModal({
             onPointerMove={(e) => moveDrag(e.clientX, e.clientY)}
             onPointerUp={endDrag}
             onPointerCancel={endDrag}
+            onWheel={(e) => {
+              e.preventDefault();
+              setScale(pos.scale + (e.deltaY < 0 ? COVER_SCALE_STEP : -COVER_SCALE_STEP));
+            }}
           >
             <img
               src={resolvedSrc}
               alt=""
               draggable={false}
-              className="pointer-events-none h-full w-full object-cover"
-              style={{ objectPosition: formatCoverPosition(pos) }}
+              className="pointer-events-none h-full w-full object-cover will-change-transform"
+              style={coverImageStyle(pos)}
             />
             <div className="pointer-events-none absolute inset-x-0 top-0 flex justify-center bg-gradient-to-b from-black/50 to-transparent py-2">
               <span className="inline-flex items-center gap-1.5 rounded-full bg-black/45 px-3 py-1 text-xs font-medium text-white">
@@ -123,6 +145,41 @@ export function CoverPositionModal({
                 {t('editProfile.dragToReposition')}
               </span>
             </div>
+          </div>
+
+          <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <button
+              type="button"
+              className="rounded-full border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              onClick={() => setScale(pos.scale - COVER_SCALE_STEP)}
+              disabled={confirming || pos.scale <= COVER_SCALE_MIN}
+              aria-label={t('editProfile.zoomOut')}
+            >
+              <ZoomOut className="h-4 w-4" />
+            </button>
+            <input
+              type="range"
+              min={COVER_SCALE_MIN}
+              max={COVER_SCALE_MAX}
+              step={COVER_SCALE_STEP}
+              value={pos.scale}
+              disabled={confirming}
+              onChange={(e) => setScale(Number(e.target.value))}
+              className="h-2 flex-1 cursor-pointer accent-brand-700"
+              aria-label={t('editProfile.zoom')}
+            />
+            <button
+              type="button"
+              className="rounded-full border border-slate-200 bg-white p-2 text-slate-700 hover:bg-slate-100 disabled:opacity-40"
+              onClick={() => setScale(pos.scale + COVER_SCALE_STEP)}
+              disabled={confirming || pos.scale >= COVER_SCALE_MAX}
+              aria-label={t('editProfile.zoomIn')}
+            >
+              <ZoomIn className="h-4 w-4" />
+            </button>
+            <span className="w-12 text-right text-xs font-medium tabular-nums text-slate-600">
+              {scalePct}%
+            </span>
           </div>
 
           <div className="flex justify-end gap-2">

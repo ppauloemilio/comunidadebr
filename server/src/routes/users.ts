@@ -236,7 +236,7 @@ router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
   }
   if (cover_position !== undefined) {
     const pos = String(cover_position).trim();
-    if (!/^\d{1,3}%\s+\d{1,3}%$/.test(pos)) {
+    if (!/^\d{1,3}(?:\.\d+)?%\s+\d{1,3}(?:\.\d+)?%(?:\|\d+(?:\.\d+)?)?$/.test(pos)) {
       return res.status(400).json({ error: 'Posição da capa inválida' });
     }
     setProfile('cover_position', pos);

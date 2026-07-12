@@ -3,7 +3,7 @@ import { Camera, Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
 import { mediaUrl } from '@/lib/api';
-import { coverObjectPosition } from '@/lib/coverPosition';
+import { coverImageStyle } from '@/lib/coverPosition';
 import { cn } from '@/lib/utils';
 
 function CoverImage({
@@ -35,10 +35,10 @@ function CoverImage({
         onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
         className={cn(
-          'h-full w-full object-cover transition-opacity duration-300',
+          'h-full w-full object-cover transition-opacity duration-300 will-change-transform',
           loaded ? 'opacity-100' : 'opacity-0'
         )}
-        style={{ objectPosition: coverObjectPosition(position) }}
+        style={coverImageStyle(position)}
       />
       {failed && (
         <div className="absolute inset-0 bg-gradient-to-r from-brand-600 to-brand-500" />
