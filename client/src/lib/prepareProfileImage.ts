@@ -70,27 +70,19 @@ export async function prepareAvatarImage(file: File): Promise<File> {
 
 export async function prepareCoverImage(file: File): Promise<File> {
   const img = await loadImage(file);
-  const maxW = 1000;
-  const maxH = 400;
-
-  let width = img.width;
-  let height = img.height;
-  if (width > maxW) {
-    height = (height * maxW) / width;
-    width = maxW;
-  }
-  if (height > maxH) {
-    width = (width * maxH) / height;
-    height = maxH;
-  }
+  // Mantém proporção com lado maior limitado — permite reposicionar no banner largo
+  const maxSide = 1400;
+  const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+  const width = Math.max(1, Math.round(img.width * scale));
+  const height = Math.max(1, Math.round(img.height * scale));
 
   const canvas = document.createElement('canvas');
-  canvas.width = Math.round(width);
-  canvas.height = Math.round(height);
+  canvas.width = width;
+  canvas.height = height;
   const ctx = canvas.getContext('2d');
   if (!ctx) return file;
 
-  ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const blob = await compressJpeg(canvas, 180_000);
+  ctx.drawImage(img, 0, 0, width, height);
+  const blob = await compressJpeg(canvas, 220_000);
   return new File([blob], 'cover.jpg', { type: 'image/jpeg' });
 }

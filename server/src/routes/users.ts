@@ -15,6 +15,7 @@ async function formatUser(user: UserRow, profile?: Record<string, unknown>, extr
     full_name: user.full_name,
     avatar_url: user.avatar_url,
     cover_url: profile?.cover_url || '',
+    cover_position: (profile?.cover_position as string) || '50% 50%',
     created_at: user.created_at,
     bio: profile?.bio || '',
     current_country: profile?.current_country || 'BR',
@@ -188,7 +189,7 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
 
 router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
   const {
-    full_name, bio, username, avatar_url, cover_url,
+    full_name, bio, username, avatar_url, cover_url, cover_position,
     current_country, current_state, current_city,
     origin_state, origin_city, primary_skill,
     show_city_on_profile, show_whatsapp_on_profile,
@@ -232,6 +233,13 @@ router.patch('/me/profile', authMiddleware, async (req: AuthRequest, res) => {
       return res.status(400).json({ error: 'Imagem de capa inválida' });
     }
     setProfile('cover_url', cover_url);
+  }
+  if (cover_position !== undefined) {
+    const pos = String(cover_position).trim();
+    if (!/^\d{1,3}%\s+\d{1,3}%$/.test(pos)) {
+      return res.status(400).json({ error: 'Posição da capa inválida' });
+    }
+    setProfile('cover_position', pos);
   }
   setProfile('current_country', current_country);
   setProfile('current_state', current_state);

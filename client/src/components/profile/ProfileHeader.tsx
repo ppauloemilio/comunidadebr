@@ -3,9 +3,18 @@ import { Camera, Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/Avatar';
 import { Card } from '@/components/ui/Card';
 import { mediaUrl } from '@/lib/api';
+import { coverObjectPosition } from '@/lib/coverPosition';
 import { cn } from '@/lib/utils';
 
-function CoverImage({ src, alt }: { src: string; alt: string }) {
+function CoverImage({
+  src,
+  alt,
+  position,
+}: {
+  src: string;
+  alt: string;
+  position?: string | null;
+}) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const resolved = mediaUrl(src);
@@ -26,9 +35,10 @@ function CoverImage({ src, alt }: { src: string; alt: string }) {
         onLoad={() => setLoaded(true)}
         onError={() => setFailed(true)}
         className={cn(
-          'h-full w-full object-cover object-center transition-opacity duration-300',
+          'h-full w-full object-cover transition-opacity duration-300',
           loaded ? 'opacity-100' : 'opacity-0'
         )}
+        style={{ objectPosition: coverObjectPosition(position) }}
       />
       {failed && (
         <div className="absolute inset-0 bg-gradient-to-r from-brand-600 to-brand-500" />
@@ -46,6 +56,7 @@ type EditableProps = {
 
 type ProfileHeaderProps = {
   coverUrl?: string | null;
+  coverPosition?: string | null;
   avatarUrl?: string | null;
   name: string;
   username?: string;
@@ -59,6 +70,7 @@ type ProfileHeaderProps = {
 
 export function ProfileHeader({
   coverUrl,
+  coverPosition,
   avatarUrl,
   name,
   username,
@@ -73,7 +85,7 @@ export function ProfileHeader({
     <Card className={cn('border-slate-200/80 shadow-sm', className)}>
       <div className="group/cover relative h-36 overflow-hidden rounded-t-xl bg-brand-500 sm:h-44">
         {coverUrl ? (
-          <CoverImage src={coverUrl} alt="" />
+          <CoverImage src={coverUrl} alt="" position={coverPosition} />
         ) : (
           <div className="h-full w-full bg-gradient-to-r from-brand-600 to-brand-500" />
         )}

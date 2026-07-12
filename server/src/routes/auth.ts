@@ -110,6 +110,7 @@ router.get('/me', authMiddleware, async (req: AuthRequest, res) => {
       origin_city: profile?.origin_city || '',
       origin_state: profile?.origin_state || '',
       cover_url: profile?.cover_url || '',
+      cover_position: (profile as { cover_position?: string })?.cover_position || '50% 50%',
       primary_skill: profile?.primary_skill || '',
       show_city_on_profile: !!(profile?.show_city_on_profile ?? 1),
       show_whatsapp_on_profile: !!profile?.show_whatsapp_on_profile,

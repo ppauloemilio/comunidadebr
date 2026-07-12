@@ -10,10 +10,16 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { Card, CardContent } from '@/components/ui/Card';
 import { ProfileHeader } from '@/components/profile/ProfileHeader';
+import { CoverPositionModal } from '@/components/profile/CoverPositionModal';
 import { writeCachedAvatar } from '@/lib/avatarCache';
 import {
   prepareAvatarImage, prepareCoverImage, validateImageFile, fileToDataUrl,
 } from '@/lib/prepareProfileImage';
+import {
+  type CoverPosition,
+  formatCoverPosition,
+  parseCoverPosition,
+} from '@/lib/coverPosition';
 import {
   SKILL_AREAS, PROFICIENCY_LEVELS, LANGUAGE_OPTIONS, SocialLinks,
 } from '@/lib/profileConstants';
@@ -31,6 +37,7 @@ type MeData = {
   profile: {
     bio: string;
     cover_url?: string;
+    cover_position?: string;
     current_country: string;
     current_state: string;
     current_city: string;
@@ -77,6 +84,13 @@ export function EditProfilePage() {
   const [uploading, setUploading] = useState<'avatar' | 'cover' | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ avatar?: string; cover?: string }>({});
+  const [coverEditor, setCoverEditor] = useState<{
+    src: string;
+    file?: File;
+    blobUrl?: string;
+    mode: 'upload' | 'reposition';
+  } | null>(null);
+  const [coverSaving, setCoverSaving] = useState(false);
   const [langInput, setLangInput] = useState('');
   const [newSkill, setNewSkill] = useState({ name: '', level: 'intermediate', years: '' });
 
@@ -85,6 +99,7 @@ export function EditProfilePage() {
 
   const [form, setForm] = useState({
     full_name: '', username: '', bio: '', avatar_url: '' as string | null, cover_url: '',
+    cover_position: '50% 50%',
     current_country: '', current_state: '', current_city: '',
     origin_state: '', origin_city: '',
     primary_skill: '', show_city_on_profile: true, show_whatsapp_on_profile: false,
@@ -104,6 +119,7 @@ export function EditProfilePage() {
       bio: me.profile?.bio || '',
       avatar_url: me.avatar_url,
       cover_url: me.profile?.cover_url || '',
+      cover_position: me.profile?.cover_position || '50% 50%',
       current_country: me.profile?.current_country || '',
       current_state: me.profile?.current_state || '',
       current_city: me.profile?.current_city || '',
@@ -157,7 +173,7 @@ export function EditProfilePage() {
         username: form.username,
         bio: form.bio,
         ...(form.avatar_url ? { avatar_url: form.avatar_url } : {}),
-        ...(form.cover_url ? { cover_url: form.cover_url } : {}),
+        ...(form.cover_url ? { cover_url: form.cover_url, cover_position: form.cover_position } : {}),
         current_country: form.current_country,
         current_state: form.current_state,
         current_city: form.current_city,
@@ -218,11 +234,21 @@ export function EditProfilePage() {
     previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url));
   }, []);
 
-  const persistPhoto = async (field: 'avatar_url' | 'cover_url', url: string) => {
-    const updated = await api<{ avatar_url?: string | null; cover_url?: string }>('/users/me/profile', {
-      method: 'PATCH',
-      body: JSON.stringify({ [field]: url }),
-    });
+  const persistPhoto = async (
+    field: 'avatar_url' | 'cover_url',
+    url: string,
+    coverPosition?: string
+  ) => {
+    const body: Record<string, string> = { [field]: url };
+    if (field === 'cover_url' && coverPosition) body.cover_position = coverPosition;
+
+    const updated = await api<{ avatar_url?: string | null; cover_url?: string; cover_position?: string }>(
+      '/users/me/profile',
+      {
+        method: 'PATCH',
+        body: JSON.stringify(body),
+      }
+    );
 
     const saved =
       field === 'avatar_url'
@@ -237,13 +263,23 @@ export function EditProfilePage() {
       );
     }
 
-    setForm((f) => ({ ...f, [field]: saved }));
+    setForm((f) => ({
+      ...f,
+      [field]: saved,
+      ...(field === 'cover_url'
+        ? { cover_position: updated.cover_position || coverPosition || f.cover_position }
+        : {}),
+    }));
     qc.setQueryData<MeData>(['me-edit'], (old) => {
       if (!old) return old;
       if (field === 'avatar_url') return { ...old, avatar_url: saved };
       return {
         ...old,
-        profile: { ...old.profile, cover_url: saved },
+        profile: {
+          ...old.profile,
+          cover_url: saved,
+          cover_position: updated.cover_position || coverPosition || old.profile.cover_position,
+        },
       };
     });
     if (field === 'avatar_url') {
@@ -254,32 +290,83 @@ export function EditProfilePage() {
     qc.invalidateQueries({ queryKey: ['profile', user?.id] });
   };
 
-  const handleUpload = async (file: File, field: 'avatar_url' | 'cover_url') => {
+  const persistCoverPosition = async (position: CoverPosition) => {
+    const formatted = formatCoverPosition(position);
+    const updated = await api<{ cover_position?: string }>('/users/me/profile', {
+      method: 'PATCH',
+      body: JSON.stringify({ cover_position: formatted }),
+    });
+    const saved = updated.cover_position || formatted;
+    setForm((f) => ({ ...f, cover_position: saved }));
+    qc.setQueryData<MeData>(['me-edit'], (old) => {
+      if (!old) return old;
+      return { ...old, profile: { ...old.profile, cover_position: saved } };
+    });
+    qc.invalidateQueries({ queryKey: ['profile', user?.id] });
+  };
+
+  const closeCoverEditor = () => {
+    if (coverEditor?.blobUrl) {
+      URL.revokeObjectURL(coverEditor.blobUrl);
+      previewUrlsRef.current = previewUrlsRef.current.filter((u) => u !== coverEditor.blobUrl);
+    }
+    setCoverEditor(null);
+    if (coverRef.current) coverRef.current.value = '';
+  };
+
+  const handleCoverConfirm = async (position: CoverPosition) => {
+    if (!coverEditor) return;
+    setCoverSaving(true);
+    setUploadError(null);
+    try {
+      if (coverEditor.mode === 'reposition') {
+        await persistCoverPosition(position);
+        closeCoverEditor();
+        return;
+      }
+
+      const file = coverEditor.file;
+      if (!file) return;
+      setUploading('cover');
+      const prepared = await prepareCoverImage(file);
+      const url = await fileToDataUrl(prepared);
+      await persistPhoto('cover_url', url, formatCoverPosition(position));
+      setPreview((p) => {
+        const next = { ...p };
+        delete next.cover;
+        return next;
+      });
+      closeCoverEditor();
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : t('editProfile.uploadError_failed'));
+    } finally {
+      setCoverSaving(false);
+      setUploading(null);
+    }
+  };
+
+  const handleUpload = async (file: File, field: 'avatar_url') => {
     const validation = validateImageFile(file);
     if (validation) {
       setUploadError(t(`editProfile.uploadError_${validation}`));
       return;
     }
 
-    const kind = field === 'avatar_url' ? 'avatar' : 'cover';
     const previousUrl = form[field];
     setUploadError(null);
-    setUploading(kind);
+    setUploading('avatar');
 
     const blobUrl = URL.createObjectURL(file);
     previewUrlsRef.current.push(blobUrl);
-    setPreview((p) => ({ ...p, [kind]: blobUrl }));
+    setPreview((p) => ({ ...p, avatar: blobUrl }));
 
     try {
-      const prepared = kind === 'avatar'
-        ? await prepareAvatarImage(file)
-        : await prepareCoverImage(file);
-      // Evita /api/upload na Vercel (multipart+/tmp). Grava data URL comprimida no Neon.
+      const prepared = await prepareAvatarImage(file);
       const url = await fileToDataUrl(prepared);
       await persistPhoto(field, url);
       setPreview((p) => {
         const next = { ...p };
-        delete next[kind];
+        delete next.avatar;
         return next;
       });
     } catch (err) {
@@ -287,19 +374,38 @@ export function EditProfilePage() {
       setForm((f) => ({ ...f, [field]: previousUrl }));
       setPreview((p) => {
         const next = { ...p };
-        delete next[kind];
+        delete next.avatar;
         return next;
       });
     } finally {
       URL.revokeObjectURL(blobUrl);
       previewUrlsRef.current = previewUrlsRef.current.filter((u) => u !== blobUrl);
       setUploading(null);
-      if (kind === 'avatar' && avatarRef.current) avatarRef.current.value = '';
-      if (kind === 'cover' && coverRef.current) coverRef.current.value = '';
+      if (avatarRef.current) avatarRef.current.value = '';
     }
   };
 
-  const handleFilePick = (field: 'avatar_url' | 'cover_url') => (e: ChangeEvent<HTMLInputElement>) => {
+  const handleCoverPick = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const validation = validateImageFile(file);
+    if (validation) {
+      setUploadError(t(`editProfile.uploadError_${validation}`));
+      if (coverRef.current) coverRef.current.value = '';
+      return;
+    }
+    setUploadError(null);
+    const blobUrl = URL.createObjectURL(file);
+    previewUrlsRef.current.push(blobUrl);
+    setCoverEditor({
+      src: blobUrl,
+      file,
+      blobUrl,
+      mode: 'upload',
+    });
+  };
+
+  const handleFilePick = (field: 'avatar_url') => (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) handleUpload(file, field);
   };
@@ -324,22 +430,55 @@ export function EditProfilePage() {
 
       <ProfileHeader
         coverUrl={preview.cover ?? form.cover_url}
+        coverPosition={form.cover_position}
         avatarUrl={preview.avatar ?? form.avatar_url}
         name={form.full_name || me?.full_name || 'U'}
         username={form.username || me?.username}
         editable={{
           onCoverClick: () => coverRef.current?.click(),
           onAvatarClick: () => avatarRef.current?.click(),
-          coverLoading: uploading === 'cover',
+          coverLoading: uploading === 'cover' || coverSaving,
           avatarLoading: uploading === 'avatar',
         }}
       />
-      <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFilePick('cover_url')} />
+      <input ref={coverRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleCoverPick} />
       <input ref={avatarRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={handleFilePick('avatar_url')} />
+      {form.cover_url && (
+        <div className="mb-3 flex justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-full"
+            onClick={() =>
+              setCoverEditor({
+                src: form.cover_url,
+                mode: 'reposition',
+              })
+            }
+          >
+            {t('editProfile.repositionCover')}
+          </Button>
+        </div>
+      )}
       {uploadError && (
         <p className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{uploadError}</p>
       )}
       <p className="mb-4 text-xs text-slate-500">{t('editProfile.photoHint')}</p>
+
+      {coverEditor && (
+        <CoverPositionModal
+          imageSrc={coverEditor.src}
+          initialPosition={
+            coverEditor.mode === 'reposition'
+              ? form.cover_position
+              : parseCoverPosition('50% 40%')
+          }
+          confirming={coverSaving}
+          onCancel={closeCoverEditor}
+          onConfirm={handleCoverConfirm}
+        />
+      )}
 
       <div className="mb-4 flex gap-1 rounded-xl bg-slate-100 p-1">
         {tabs.map(({ key, label }) => (

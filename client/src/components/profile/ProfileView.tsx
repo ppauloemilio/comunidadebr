@@ -20,6 +20,7 @@ export type ProfileData = {
   username: string;
   avatar_url: string | null;
   cover_url?: string;
+  cover_position?: string;
   bio: string;
   current_country: string;
   current_city?: string;
@@ -124,6 +125,7 @@ export function ProfileView({
     <div className="mx-auto max-w-3xl">
       <ProfileHeader
         coverUrl={user.cover_url}
+        coverPosition={user.cover_position}
         avatarUrl={user.avatar_url}
         name={user.full_name}
         username={user.username}
@@ -163,11 +165,6 @@ export function ProfileView({
           </div>
         )}
       >
-        {isOwner && user.is_premium && (
-          <div className="mt-4 flex items-center gap-2 rounded-lg border border-brand-200 bg-brand-50 px-3 py-2 text-sm text-brand-800">
-            {t('profile.premiumOwnerHint')}
-          </div>
-        )}
         {user.bio && (
           <div className="mt-4 whitespace-pre-line text-[15px] leading-relaxed text-slate-700">
             {user.bio}

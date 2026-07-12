@@ -330,6 +330,12 @@ async function migrate(database: Db) {
   }
 
   try {
+    await database.exec(`ALTER TABLE public_profiles ADD COLUMN IF NOT EXISTS cover_position TEXT DEFAULT '50% 50%'`);
+  } catch (err) {
+    console.error('cover_position schema patch:', err);
+  }
+
+  try {
     await database.exec(
       `UPDATE businesses SET city = 'New York', state = 'New York'
        WHERE TRIM(COALESCE(city, '')) = '' AND address LIKE '%New York%'`
