@@ -126,6 +126,7 @@
     "linkUrl": "Link URL",
     "preview": "Preview",
     "addPhoto": "Add photo",
+    "richEditorHint": "Write freely, insert images in the text, and drag the edge to resize.",
     "imageSize": "Size",
     "imageSizeForNew": "Size for next photo:",
     "imageSize_s": "S",

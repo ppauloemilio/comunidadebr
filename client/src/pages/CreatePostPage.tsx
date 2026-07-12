@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -8,10 +8,8 @@ import { useAuth } from '@/hooks/useAuth';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
-import { PostFormatToolbar } from '@/components/post/PostFormatToolbar';
-import { PostImageManager } from '@/components/post/PostImageManager';
-import { FormattedText } from '@/lib/formatPostText';
-import type { PostImage } from '@/lib/postImages';
+import { PostRichEditor } from '@/components/post/PostRichEditor';
+import { extractImagesFromHtml, isEditorEmpty, sanitizePostHtml } from '@/lib/postContent';
 import { useCountryNameMap } from '@/components/explore/ExploreGeoFilters';
 import { COUNTRY_LABELS } from '@/lib/utils';
 
@@ -40,12 +38,10 @@ export function CreatePostPage() {
   const qc = useQueryClient();
   const { user } = useAuth();
   const countryNames = useCountryNameMap();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [searchParams] = useSearchParams();
 
   const [content, setContent] = useState('');
   const [postType, setPostType] = useState<PostTypeOption>('text');
-  const [images, setImages] = useState<PostImage[]>([]);
 
   useEffect(() => {
     const param = searchParams.get('type');
@@ -60,10 +56,12 @@ export function CreatePostPage() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      const html = sanitizePostHtml(content);
+      const images = extractImagesFromHtml(html);
       const type = images.length > 0 && postType === 'text' ? 'image' : postType;
       return api('/posts', {
         method: 'POST',
-        body: JSON.stringify({ content, type, images }),
+        body: JSON.stringify({ content: html, type, images }),
       });
     },
     onSuccess: () => {
@@ -124,36 +122,13 @@ export function CreatePostPage() {
             ))}
           </select>
 
-          <div className="space-y-2">
-            <PostFormatToolbar
-              value={content}
-              onChange={setContent}
-              textareaRef={textareaRef}
-            />
-            <textarea
-              ref={textareaRef}
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder={t('post.placeholder')}
-              className="min-h-[200px] w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-3 text-sm leading-relaxed outline-none ring-brand-500/30 focus:ring-2"
-            />
-            {content.trim() && (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-3 py-2">
-                <p className="mb-1 text-xs font-medium text-slate-500">{t('post.preview')}</p>
-                <p className="text-sm leading-relaxed text-slate-800">
-                  <FormattedText text={content} />
-                </p>
-              </div>
-            )}
-          </div>
-
-          <PostImageManager images={images} onChange={setImages} />
+          <PostRichEditor value={content} onChange={setContent} />
 
           <div className="flex items-center justify-end border-t border-slate-100 pt-4">
             <Button
               className="rounded-lg px-6"
               onClick={() => mutation.mutate()}
-              disabled={!content.trim() || mutation.isPending}
+              disabled={isEditorEmpty(content) || mutation.isPending}
             >
               {t('post.publish')}
             </Button>

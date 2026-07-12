@@ -1,24 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Heart, MessageCircle, Share2, MoreHorizontal, MapPin, Trash2, Pencil, X, Reply,
 } from 'lucide-react';
-import { api, mediaUrl } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Avatar } from '@/components/ui/Avatar';
 import { Button } from '@/components/ui/Button';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Textarea } from '@/components/ui/Textarea';
-import { PostFormatToolbar } from '@/components/post/PostFormatToolbar';
-import { PostImageManager } from '@/components/post/PostImageManager';
+import { PostRichEditor } from '@/components/post/PostRichEditor';
+import { PostContent } from '@/components/post/PostContent';
 import { timeAgo, COUNTRY_LABELS } from '@/lib/utils';
-import { FormattedText } from '@/lib/formatPostText';
 import {
-  normalizePostImages,
-  postImageFrameClass,
-  postImageImgClass,
-  type PostImage,
-} from '@/lib/postImages';
+  extractImagesFromHtml,
+  isEditorEmpty,
+  sanitizePostHtml,
+} from '@/lib/postContent';
+import type { PostImage } from '@/lib/postImages';
 import { useAuth } from '@/hooks/useAuth';
 
 export type Post = {
@@ -93,20 +92,12 @@ export function PostCard({ post }: { post: Post }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(post.content);
-  const [editImages, setEditImages] = useState<PostImage[]>(() => normalizePostImages(post.images));
-  const editTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const postImages = useMemo(() => normalizePostImages(post.images), [post.images]);
 
   useEffect(() => {
-    if (!editing) {
-      setEditContent(post.content);
-      setEditImages(normalizePostImages(post.images));
-    }
-  }, [post.content, post.images, editing]);
+    if (!editing) setEditContent(post.content);
+  }, [post.content, editing]);
 
   const isOwner = user?.id === post.author_id;
-  const isLong = post.content.length > COLLAPSE_LEN;
-  const displayContent = expanded || !isLong ? post.content : `${post.content.slice(0, COLLAPSE_LEN)}...`;
   const snap = post.author_snapshot;
   const authorPremium = post.author_is_premium ?? snap.is_premium;
   const locationLabel = snap.city
@@ -131,11 +122,14 @@ export function PostCard({ post }: { post: Post }) {
   });
 
   const editMutation = useMutation({
-    mutationFn: () =>
-      api<Post>(`/posts/${post.id}`, {
+    mutationFn: () => {
+      const html = sanitizePostHtml(editContent);
+      const images = extractImagesFromHtml(html);
+      return api<Post>(`/posts/${post.id}`, {
         method: 'PATCH',
-        body: JSON.stringify({ content: editContent, images: editImages }),
-      }),
+        body: JSON.stringify({ content: html, images }),
+      });
+    },
     onSuccess: () => {
       setEditing(false);
       invalidatePostQueries(qc, post.id);
@@ -235,7 +229,6 @@ export function PostCard({ post }: { post: Post }) {
                     className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-700 hover:bg-slate-50"
                     onClick={() => {
                       setEditContent(post.content);
-                      setEditImages(normalizePostImages(post.images));
                       setEditing(true);
                       setMenuOpen(false);
                     }}
@@ -262,26 +255,7 @@ export function PostCard({ post }: { post: Post }) {
 
         {editing ? (
           <div className="space-y-3">
-            <PostFormatToolbar
-              value={editContent}
-              onChange={setEditContent}
-              textareaRef={editTextareaRef}
-            />
-            <textarea
-              ref={editTextareaRef}
-              value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
-              className="min-h-[120px] w-full resize-y rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm leading-relaxed outline-none ring-brand-500/30 focus:ring-2"
-            />
-            {editContent.trim() && (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 px-3 py-2">
-                <p className="mb-1 text-xs font-medium text-slate-500">{t('post.preview')}</p>
-                <p className="text-sm leading-relaxed text-slate-800">
-                  <FormattedText text={editContent} />
-                </p>
-              </div>
-            )}
-            <PostImageManager images={editImages} onChange={setEditImages} />
+            <PostRichEditor value={editContent} onChange={setEditContent} minHeightClass="min-h-[140px]" />
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
@@ -289,14 +263,13 @@ export function PostCard({ post }: { post: Post }) {
                 onClick={() => {
                   setEditing(false);
                   setEditContent(post.content);
-                  setEditImages(normalizePostImages(post.images));
                 }}
               >
                 {t('common.cancel')}
               </Button>
               <Button
                 className="rounded-full"
-                disabled={!editContent.trim() || editMutation.isPending}
+                disabled={isEditorEmpty(editContent) || editMutation.isPending}
                 onClick={() => editMutation.mutate()}
               >
                 {t('feed.saveEdit')}
@@ -304,32 +277,14 @@ export function PostCard({ post }: { post: Post }) {
             </div>
           </div>
         ) : (
-          <div className="text-[15px] leading-relaxed">
-            <FormattedText text={displayContent} />
-            {isLong && !expanded && (
-              <button
-                type="button"
-                className="ml-1 font-medium text-brand-700 hover:underline"
-                onClick={() => setExpanded(true)}
-              >
-                {t('feed.seeMore')}
-              </button>
-            )}
-          </div>
-        )}
-
-        {!editing && postImages.length > 0 && (
-          <div className="space-y-3">
-            {postImages.map((img) => (
-              <div key={img.url} className={postImageFrameClass(img.size)}>
-                <img
-                  src={mediaUrl(img.url)}
-                  alt=""
-                  className={postImageImgClass(img.size)}
-                />
-              </div>
-            ))}
-          </div>
+          <PostContent
+            content={post.content}
+            images={post.images}
+            collapseLen={COLLAPSE_LEN}
+            expanded={expanded}
+            onExpand={() => setExpanded(true)}
+            seeMoreLabel={t('feed.seeMore')}
+          />
         )}
 
         {(post.likes_count > 0 || post.comments_count > 0) && (

@@ -126,6 +126,7 @@
     "linkUrl": "URL do link",
     "preview": "Pré-visualização",
     "addPhoto": "Adicionar foto",
+    "richEditorHint": "Escreva livremente, insira imagens no texto e arraste a borda para redimensionar.",
     "imageSize": "Tamanho",
     "imageSizeForNew": "Tamanho da próxima foto:",
     "imageSize_s": "P",
