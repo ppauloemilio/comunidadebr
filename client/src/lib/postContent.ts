@@ -77,7 +77,7 @@ export function sanitizePostHtml(html: string): string {
       'a', 'ul', 'ol', 'li', 'blockquote', 'h1', 'h2', 'h3',
       'code', 'pre', 'img', 'span', 'div',
     ],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'width', 'style', 'class', 'target', 'rel'],
+    ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'width', 'style', 'class', 'target', 'rel', 'data-align'],
   });
 }
 

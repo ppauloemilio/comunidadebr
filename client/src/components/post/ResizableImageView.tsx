@@ -15,6 +15,7 @@ function parseWidth(value: unknown): number {
 export function ResizableImageView({ node, updateAttributes, selected }: NodeViewProps) {
   const src = mediaUrl(String(node.attrs.src || ''));
   const widthPct = parseWidth(node.attrs.width);
+  const align = (node.attrs.align as string) || 'center';
   const [dragging, setDragging] = useState(false);
   const startX = useRef(0);
   const startWidth = useRef(widthPct);
@@ -51,11 +52,20 @@ export function ResizableImageView({ node, updateAttributes, selected }: NodeVie
   if (!src) return null;
 
   return (
-    <NodeViewWrapper className="my-2 block" data-drag-handle>
+    <NodeViewWrapper
+      className={cn(
+        'my-2 flex w-full',
+        align === 'left' && 'justify-start',
+        align === 'center' && 'justify-center',
+        align === 'right' && 'justify-end'
+      )}
+      data-drag-handle
+      data-align={align}
+    >
       <div
         ref={containerRef}
         className={cn(
-          'group relative mx-auto block max-w-full',
+          'group relative block max-w-full',
           selected && 'ring-2 ring-brand-500 ring-offset-2',
           dragging && 'select-none'
         )}

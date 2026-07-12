@@ -92,6 +92,22 @@ body {
   border-radius: 0.75rem;
 }
 
+.ProseMirror [style*="text-align: left"] {
+  text-align: left;
+}
+
+.ProseMirror [style*="text-align: center"] {
+  text-align: center;
+}
+
+.ProseMirror [style*="text-align: right"] {
+  text-align: right;
+}
+
+.ProseMirror [style*="text-align: justify"] {
+  text-align: justify;
+}
+
 .post-html p {
   margin: 0.35em 0;
 }

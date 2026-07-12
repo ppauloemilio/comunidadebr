@@ -3,11 +3,13 @@ import StarterKit from '@tiptap/starter-kit';
 import Underline from '@tiptap/extension-underline';
 import Link from '@tiptap/extension-link';
 import Placeholder from '@tiptap/extension-placeholder';
+import TextAlign from '@tiptap/extension-text-align';
 import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   Bold, Italic, Underline as UnderlineIcon, Strikethrough, Link2,
   List, ListOrdered, Heading2, Quote, ImagePlus, Code,
+  AlignLeft, AlignCenter, AlignRight, AlignJustify,
 } from 'lucide-react';
 import { uploadFile } from '@/lib/api';
 import { toEditorHtml } from '@/lib/postContent';
@@ -22,6 +24,8 @@ type Props = {
   minHeightClass?: string;
 };
 
+type AlignValue = 'left' | 'center' | 'right' | 'justify';
+
 async function uploadAndInsert(editor: Editor, file: File) {
   const { url } = await uploadFile(file);
   editor
@@ -29,9 +33,25 @@ async function uploadAndInsert(editor: Editor, file: File) {
     .focus()
     .insertContent({
       type: 'resizableImage',
-      attrs: { src: url, width: '70%' },
+      attrs: { src: url, width: '70%', align: 'center' },
     })
     .run();
+}
+
+function setContentAlignment(editor: Editor, align: AlignValue) {
+  if (editor.isActive('resizableImage')) {
+    if (align === 'justify') return;
+    editor.chain().focus().updateAttributes('resizableImage', { align }).run();
+    return;
+  }
+  editor.chain().focus().setTextAlign(align).run();
+}
+
+function isAlignActive(editor: Editor, align: AlignValue) {
+  if (editor.isActive('resizableImage')) {
+    return editor.getAttributes('resizableImage').align === align;
+  }
+  return editor.isActive({ textAlign: align });
 }
 
 export function PostRichEditor({
@@ -64,6 +84,10 @@ export function PostRichEditor({
       }),
       Placeholder.configure({
         placeholder: placeholder || t('post.placeholder'),
+      }),
+      TextAlign.configure({
+        types: ['heading', 'paragraph'],
+        alignments: ['left', 'center', 'right', 'justify'],
       }),
       ResizableImage.configure({
         inline: false,
@@ -192,6 +216,25 @@ export function PostRichEditor({
         </button>
         <button type="button" className={btn(editor.isActive('orderedList'))} title={t('post.numberedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>
           <ListOrdered className="h-4 w-4" />
+        </button>
+        <span className="mx-1 h-5 w-px bg-slate-200" />
+        <button type="button" className={btn(isAlignActive(editor, 'left'))} title={t('post.alignLeft')} onClick={() => setContentAlignment(editor, 'left')}>
+          <AlignLeft className="h-4 w-4" />
+        </button>
+        <button type="button" className={btn(isAlignActive(editor, 'center'))} title={t('post.alignCenter')} onClick={() => setContentAlignment(editor, 'center')}>
+          <AlignCenter className="h-4 w-4" />
+        </button>
+        <button type="button" className={btn(isAlignActive(editor, 'right'))} title={t('post.alignRight')} onClick={() => setContentAlignment(editor, 'right')}>
+          <AlignRight className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          className={btn(isAlignActive(editor, 'justify'))}
+          title={t('post.alignJustify')}
+          disabled={editor.isActive('resizableImage')}
+          onClick={() => setContentAlignment(editor, 'justify')}
+        >
+          <AlignJustify className="h-4 w-4" />
         </button>
         <span className="mx-1 h-5 w-px bg-slate-200" />
         <button
