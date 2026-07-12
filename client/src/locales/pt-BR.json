@@ -194,6 +194,7 @@
     "businessCount": "{{count}} empresas",
     "businessesOnly": "{{count}} empresas cadastradas neste país (sem membros listados).",
     "noMembers": "Nenhum membro encontrado.",
+    "loadError": "Não foi possível carregar a comunidade.",
     "search": "Buscar membros...",
     "follow": "Seguir",
     "following": "Seguindo",
@@ -426,6 +427,7 @@
     "close": "Fechar",
     "delete": "Excluir",
     "back": "Voltar",
+    "retry": "Tentar novamente",
     "error": "Algo deu errado"
   }
 }

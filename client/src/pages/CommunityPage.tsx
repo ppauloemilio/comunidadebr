@@ -60,7 +60,7 @@ export function CommunityPage() {
   const qc = useQueryClient();
   const [countryFilter, setCountryFilter] = useState('');
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error, refetch } = useQuery({
     queryKey: ['community', countryFilter],
     queryFn: () => api<CommunityData>(`/community${countryFilter ? `?country=${countryFilter}` : ''}`),
   });
@@ -79,6 +79,20 @@ export function CommunityPage() {
 
   if (isLoading) {
     return <p className="py-12 text-center text-slate-500">{t('common.loading')}</p>;
+  }
+
+  if (isError) {
+    return (
+      <div className="mx-auto max-w-lg space-y-3 py-12 text-center">
+        <p className="text-slate-700">{t('community.loadError')}</p>
+        <p className="text-sm text-slate-500">
+          {error instanceof Error ? error.message : t('common.error')}
+        </p>
+        <Button className="rounded-full" onClick={() => refetch()}>
+          {t('common.retry')}
+        </Button>
+      </div>
+    );
   }
 
   const stats = data?.stats;

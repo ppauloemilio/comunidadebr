@@ -194,6 +194,7 @@
     "businessCount": "{{count}} businesses",
     "businessesOnly": "{{count}} businesses registered in this country (no members listed).",
     "noMembers": "No members found.",
+    "loadError": "Could not load the community.",
     "search": "Search members...",
     "follow": "Follow",
     "following": "Following",
