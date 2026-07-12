@@ -427,6 +427,7 @@
     "close": "Close",
     "delete": "Delete",
     "back": "Back",
+    "retry": "Try again",
     "error": "Something went wrong"
   }
 }
