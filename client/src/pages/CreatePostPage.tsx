@@ -42,6 +42,7 @@ export function CreatePostPage() {
 
   const [content, setContent] = useState('');
   const [postType, setPostType] = useState<PostTypeOption>('text');
+  const [visibility, setVisibility] = useState<'public' | 'friends'>('public');
 
   useEffect(() => {
     const param = searchParams.get('type');
@@ -61,7 +62,7 @@ export function CreatePostPage() {
       const type = images.length > 0 && postType === 'text' ? 'image' : postType;
       return api('/posts', {
         method: 'POST',
-        body: JSON.stringify({ content: html, type, images }),
+        body: JSON.stringify({ content: html, type, images, visibility }),
       });
     },
     onSuccess: () => {
@@ -120,6 +121,16 @@ export function CreatePostPage() {
             {postTypes.map((opt) => (
               <option key={opt.value} value={opt.value}>{opt.label}</option>
             ))}
+          </select>
+
+          <select
+            className="h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800"
+            value={visibility}
+            onChange={(e) => setVisibility(e.target.value as 'public' | 'friends')}
+            aria-label={t('post.visibility')}
+          >
+            <option value="public">{t('post.visibilityPublic')}</option>
+            <option value="friends">{t('post.visibilityFriends')}</option>
           </select>
 
           <PostRichEditor value={content} onChange={setContent} />

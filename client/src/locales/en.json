@@ -9,6 +9,7 @@
     "explore": "Explore",
     "community": "Community",
     "messages": "Messages",
+    "friends": "Friends",
     "notifications": "Notifications",
     "profile": "Profile",
     "businesses": "My Businesses",
@@ -162,7 +163,10 @@
     "imageSize_m": "M",
     "imageSize_l": "L",
     "imageSize_full": "Full",
-    "publish": "Publish"
+    "publish": "Publish",
+    "visibility": "Who can see this",
+    "visibilityPublic": "Public",
+    "visibilityFriends": "Friends only"
   },
   "business": {
     "title": "Businesses",
@@ -210,6 +214,21 @@
     "unfollow": "Unfollow",
     "friendRequest": "Add friend",
     "friends": "Friends"
+  },
+  "friends": {
+    "title": "Friends",
+    "tabFriends": "Friends",
+    "tabIncoming": "Requests",
+    "tabOutgoing": "Sent",
+    "emptyFriends": "You don't have any friends yet.",
+    "emptyIncoming": "No pending requests.",
+    "emptyOutgoing": "No sent requests.",
+    "accept": "Confirm",
+    "decline": "Decline",
+    "cancelRequest": "Cancel request",
+    "unfriend": "Unfriend",
+    "unfriendConfirm": "Unfriend this person?",
+    "hint": "Add friends from other people's profiles."
   },
   "messages": {
     "title": "Messages",
@@ -284,6 +303,7 @@
     "save": "Save",
     "followers": "Followers",
     "following": "Following",
+    "friends": "Friends",
     "posts": "Posts",
     "tabPosts": "Posts",
     "tabSkills": "Skills",

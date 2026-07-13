@@ -40,6 +40,7 @@ type FormattedPost = {
   liked_by_me: boolean;
   shared_post_id: string | null;
   shared_post: FormattedPost | null;
+  visibility: string;
 };
 
 async function formatPost(
@@ -72,7 +73,41 @@ async function formatPost(
     liked_by_me: likedByMe,
     shared_post_id: (row.shared_post_id as string) || null,
     shared_post: sharedPost,
+    visibility: (row.visibility as string) || 'public',
   };
+}
+
+async function friendIdsOf(db: Db, userId: string) {
+  const rows = (await db.prepare(
+    `SELECT CASE WHEN requester_id = ? THEN receiver_id ELSE requester_id END AS friend_id
+     FROM friendships
+     WHERE status = 'accepted' AND (requester_id = ? OR receiver_id = ?)`
+  ).all(userId, userId, userId)) as { friend_id: string }[];
+  return rows.map((r) => r.friend_id);
+}
+
+async function blockedAuthorIds(db: Db, userId: string) {
+  const rows = (await db.prepare(
+    `SELECT CASE WHEN blocker_id = ? THEN blocked_id ELSE blocker_id END AS other_id
+     FROM blocks
+     WHERE blocker_id = ? OR blocked_id = ?`
+  ).all(userId, userId, userId)) as { other_id: string }[];
+  return new Set(rows.map((r) => r.other_id));
+}
+
+/** Público, próprio, ou amigos; exclui autores bloqueados. */
+function canViewerSeePost(
+  post: { author_id: unknown; visibility?: unknown },
+  viewerId: string,
+  friendSet: Set<string>,
+  blockedSet: Set<string>
+) {
+  const authorId = String(post.author_id);
+  if (blockedSet.has(authorId)) return false;
+  if (authorId === viewerId) return true;
+  const visibility = String(post.visibility || 'public');
+  if (visibility === 'friends') return friendSet.has(authorId);
+  return true;
 }
 
 /** Resolve o post original (evita compartilhar um compartilhamento). */
@@ -149,6 +184,13 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
     ).all(country);
   }
 
+  const friends = await friendIdsOf(db, req.user!.id);
+  const friendSet = new Set(friends);
+  const blockedSet = await blockedAuthorIds(db, req.user!.id);
+  posts = (posts as Record<string, unknown>[]).filter((p) =>
+    canViewerSeePost(p, req.user!.id, friendSet, blockedSet)
+  );
+
   const likes = (await db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id)) as { post_id: string }[];
   const likedSet = new Set(likes.map((l) => l.post_id));
 
@@ -169,7 +211,8 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
 });
 
 router.post('/', authMiddleware, async (req: AuthRequest, res) => {
-  const { content, type = 'text', images = [], business_id, shared_post_id } = req.body;
+  const { content, type = 'text', images = [], business_id, shared_post_id, visibility = 'public' } = req.body;
+  const audience = visibility === 'friends' ? 'friends' : 'public';
   const hasShare = !!shared_post_id;
   if (!hasShare && !content?.trim()) return res.status(400).json({ error: 'Conteúdo obrigatório' });
 
@@ -191,8 +234,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
 
   const id = uuid();
   await db.prepare(
-    `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot, shared_post_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    `INSERT INTO posts (id, content, type, images, author_id, business_id, country, author_snapshot, shared_post_id, visibility)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     (content || '').trim(),
@@ -206,7 +249,8 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
       city: profile?.current_city,
       country: profile?.current_country,
     }),
-    shareTargetId
+    shareTargetId,
+    audience
   );
 
   const post = await db.prepare('SELECT * FROM posts WHERE id = ?').get(id);
@@ -231,6 +275,13 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
     | Record<string, unknown>
     | undefined;
   if (!post) return res.status(404).json({ error: 'Post não encontrado' });
+
+  const friends = await friendIdsOf(db, req.user!.id);
+  const friendSet = new Set(friends);
+  const blockedSet = await blockedAuthorIds(db, req.user!.id);
+  if (!canViewerSeePost(post, req.user!.id, friendSet, blockedSet)) {
+    return res.status(403).json({ error: 'Post disponível apenas para amigos' });
+  }
 
   const liked = !!(await db.prepare('SELECT id FROM likes WHERE post_id = ? AND user_id = ?').get(req.params.id, req.user!.id));
   const premiumByAuthor = await authorPremiumMap(db, [post.author_id as string]);

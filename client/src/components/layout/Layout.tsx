@@ -222,6 +222,9 @@ export function Layout() {
                   {t(labelKey)}
                 </NavLink>
               ))}
+              <NavLink to="/friends" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-600">
+                <Users className="h-5 w-5" /> {t('nav.friends')}
+              </NavLink>
               <NavLink to="/messages" onClick={() => setMenuOpen(false)} className="flex items-center gap-3 rounded-xl px-4 py-3 text-sm text-slate-600">
                 <MessageCircle className="h-5 w-5" /> {t('nav.messages')}
               </NavLink>

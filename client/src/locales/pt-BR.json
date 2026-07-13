@@ -9,6 +9,7 @@
     "explore": "Explorar",
     "community": "Comunidade",
     "messages": "Mensagens",
+    "friends": "Amigos",
     "notifications": "Notificações",
     "profile": "Perfil",
     "businesses": "Meus Negócios",
@@ -162,7 +163,10 @@
     "imageSize_m": "M",
     "imageSize_l": "G",
     "imageSize_full": "Total",
-    "publish": "Publicar"
+    "publish": "Publicar",
+    "visibility": "Quem pode ver",
+    "visibilityPublic": "Público",
+    "visibilityFriends": "Somente amigos"
   },
   "business": {
     "title": "Negócios",
@@ -210,6 +214,21 @@
     "unfollow": "Deixar de seguir",
     "friendRequest": "Adicionar amigo",
     "friends": "Amigos"
+  },
+  "friends": {
+    "title": "Amigos",
+    "tabFriends": "Amigos",
+    "tabIncoming": "Solicitações",
+    "tabOutgoing": "Enviadas",
+    "emptyFriends": "Você ainda não tem amigos.",
+    "emptyIncoming": "Nenhuma solicitação pendente.",
+    "emptyOutgoing": "Nenhuma solicitação enviada.",
+    "accept": "Confirmar",
+    "decline": "Recusar",
+    "cancelRequest": "Cancelar solicitação",
+    "unfriend": "Desfazer amizade",
+    "unfriendConfirm": "Desfazer amizade com esta pessoa?",
+    "hint": "Adicione amigos pelo perfil de outras pessoas."
   },
   "messages": {
     "title": "Mensagens",
@@ -284,6 +303,7 @@
     "save": "Salvar",
     "followers": "Seguidores",
     "following": "Seguindo",
+    "friends": "Amigos",
     "posts": "Posts",
     "tabPosts": "Posts",
     "tabSkills": "Habilidades",

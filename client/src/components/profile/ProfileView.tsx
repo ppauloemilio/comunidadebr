@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import {
   MapPin, Briefcase, Calendar, LayoutGrid, Building2, Pencil, Settings, UserPlus, MessageCircle,
+  UserCheck, UserMinus, Check, X,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { writeCachedAvatar } from '@/lib/avatarCache';
@@ -31,9 +32,12 @@ export type ProfileData = {
   created_at?: string;
   followers_count: number;
   following_count: number;
+  friends_count?: number;
   posts_count?: number;
   skills?: Array<{ id: string; skill_name: string; proficiency_level: string; years_experience: number }>;
   is_following?: boolean;
+  friendship_status?: 'none' | 'pending_sent' | 'pending_received' | 'friends';
+  friendship_id?: string | null;
   is_premium?: boolean;
 };
 
@@ -82,6 +86,46 @@ export function ProfileView({
         ? api(`/social/follow/${userId}`, { method: 'DELETE' })
         : api(`/social/follow/${userId}`, { method: 'POST' }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['profile', userId] }),
+  });
+
+  const friendMutation = useMutation({
+    mutationFn: async () => {
+      const status = user?.friendship_status || 'none';
+      if (status === 'none') {
+        return api('/social/friendships', {
+          method: 'POST',
+          body: JSON.stringify({ receiver_id: userId }),
+        });
+      }
+      if ((status === 'pending_sent' || status === 'friends') && user?.friendship_id) {
+        return api(`/social/friendships/${user.friendship_id}`, { method: 'DELETE' });
+      }
+      if (status === 'pending_received' && user?.friendship_id) {
+        return api(`/social/friendships/${user.friendship_id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ status: 'accepted' }),
+        });
+      }
+      return null;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile', userId] });
+      qc.invalidateQueries({ queryKey: ['friendships'] });
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+    },
+  });
+
+  const declineFriendMutation = useMutation({
+    mutationFn: () =>
+      api(`/social/friendships/${user!.friendship_id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'rejected' }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['profile', userId] });
+      qc.invalidateQueries({ queryKey: ['friendships'] });
+      qc.invalidateQueries({ queryKey: ['notifications'] });
+    },
   });
 
   const messageMutation = useMutation({
@@ -136,6 +180,14 @@ export function ProfileView({
               <p className="text-lg font-bold">{postsCount}</p>
               <p className="text-xs text-slate-500">{t('profile.posts')}</p>
             </div>
+            <button
+              type="button"
+              className={cn('text-center', isOwner && 'hover:opacity-80')}
+              onClick={() => isOwner && navigate('/friends')}
+            >
+              <p className="text-lg font-bold">{user.friends_count ?? 0}</p>
+              <p className="text-xs text-slate-500">{t('profile.friends')}</p>
+            </button>
             <div>
               <p className="text-lg font-bold">{user.followers_count}</p>
               <p className="text-xs text-slate-500">{t('profile.followers')}</p>
@@ -203,6 +255,10 @@ export function ProfileView({
                   <Pencil className="h-4 w-4" />
                   {t('profile.edit')}
                 </Button>
+                <Button variant="outline" size="sm" className="rounded-full" onClick={() => navigate('/friends')}>
+                  <UserCheck className="h-4 w-4" />
+                  {t('friends.title')}
+                </Button>
                 <Button variant="ghost" size="sm" className="rounded-full" onClick={() => navigate('/settings')}>
                   <Settings className="h-4 w-4" />
                   {t('nav.settings')}
@@ -211,9 +267,60 @@ export function ProfileView({
             )}
             {showFollow && (
               <>
-                <Button size="sm" className="rounded-full" onClick={() => followMutation.mutate()}>
+                {user.friendship_status === 'pending_received' ? (
+                  <>
+                    <Button
+                      size="sm"
+                      className="rounded-full"
+                      disabled={friendMutation.isPending}
+                      onClick={() => friendMutation.mutate()}
+                    >
+                      <Check className="h-4 w-4" />
+                      {t('friends.accept')}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="rounded-full"
+                      disabled={declineFriendMutation.isPending}
+                      onClick={() => declineFriendMutation.mutate()}
+                    >
+                      <X className="h-4 w-4" />
+                      {t('friends.decline')}
+                    </Button>
+                  </>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant={user.friendship_status === 'friends' || user.friendship_status === 'pending_sent' ? 'outline' : 'default'}
+                    className="rounded-full"
+                    disabled={friendMutation.isPending}
+                    onClick={() => {
+                      if (user.friendship_status === 'friends') {
+                        if (window.confirm(t('friends.unfriendConfirm'))) friendMutation.mutate();
+                        return;
+                      }
+                      friendMutation.mutate();
+                    }}
+                  >
+                    {user.friendship_status === 'friends' ? (
+                      <><UserCheck className="h-4 w-4" />{t('community.friends')}</>
+                    ) : user.friendship_status === 'pending_sent' ? (
+                      <><UserMinus className="h-4 w-4" />{t('friends.cancelRequest')}</>
+                    ) : (
+                      <><UserPlus className="h-4 w-4" />{t('community.friendRequest')}</>
+                    )}
+                  </Button>
+                )}
+                <Button
+                  size="sm"
+                  variant={user.is_following ? 'outline' : 'default'}
+                  className="rounded-full"
+                  disabled={followMutation.isPending}
+                  onClick={() => followMutation.mutate()}
+                >
                   <UserPlus className="h-4 w-4" />
-                  {user.is_following ? t('community.unfollow') : t('community.follow')}
+                  {user.is_following ? t('community.following') : t('community.follow')}
                 </Button>
                 <Button variant="outline" size="sm" className="rounded-full" onClick={() => messageMutation.mutate()}>
                   <MessageCircle className="h-4 w-4" />

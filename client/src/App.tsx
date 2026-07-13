@@ -11,6 +11,7 @@ import { CommunityPage } from '@/pages/CommunityPage';
 import { ProfilePage } from '@/pages/ProfilePage';
 import { UserProfilePage } from '@/pages/UserProfilePage';
 import { CreatePostPage } from '@/pages/CreatePostPage';
+import { FriendsPage } from '@/pages/FriendsPage';
 import { MessagesPage } from '@/pages/MessagesPage';
 import { NotificationsPage } from '@/pages/NotificationsPage';
 import { MyBusinessesPage } from '@/pages/MyBusinessesPage';
@@ -72,6 +73,7 @@ export default function App() {
               <Route path="business-map" element={<BusinessMapPage />} />
               <Route path="explore" element={<ExplorePage />} />
               <Route path="community" element={<CommunityPage />} />
+              <Route path="friends" element={<FriendsPage />} />
               <Route path="profile" element={<ProfilePage />} />
               <Route path="profile/edit" element={<EditProfilePage />} />
               <Route path="user/:id" element={<UserProfilePage />} />

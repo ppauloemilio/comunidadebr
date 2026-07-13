@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { UserPlus, Ban } from 'lucide-react';
+import { Ban, Check, UserPlus, X } from 'lucide-react';
 import { api } from '@/lib/api';
 import { Card, CardContent } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -12,6 +12,7 @@ type Notification = {
   id: string;
   type: string;
   actor_id: string;
+  target_id?: string | null;
   actor_snapshot: {
     id?: string;
     full_name: string;
@@ -22,6 +23,8 @@ type Notification = {
   is_read: boolean;
   i_follow_actor?: boolean;
   actor_blocked?: boolean;
+  friendship_id?: string | null;
+  friendship_status?: 'none' | 'pending_sent' | 'pending_received' | 'friends';
 };
 
 export function NotificationsPage() {
@@ -37,6 +40,8 @@ export function NotificationsPage() {
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['notifications'] });
     qc.invalidateQueries({ queryKey: ['notifications-count'] });
+    qc.invalidateQueries({ queryKey: ['friendships'] });
+    qc.invalidateQueries({ queryKey: ['profile'] });
   };
 
   const markAllMutation = useMutation({
@@ -56,6 +61,24 @@ export function NotificationsPage() {
 
   const blockMutation = useMutation({
     mutationFn: (userId: string) => api(`/social/block/${userId}`, { method: 'POST' }),
+    onSuccess: invalidate,
+  });
+
+  const acceptFriendMutation = useMutation({
+    mutationFn: (friendshipId: string) =>
+      api(`/social/friendships/${friendshipId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'accepted' }),
+      }),
+    onSuccess: invalidate,
+  });
+
+  const declineFriendMutation = useMutation({
+    mutationFn: (friendshipId: string) =>
+      api(`/social/friendships/${friendshipId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status: 'rejected' }),
+      }),
     onSuccess: invalidate,
   });
 
@@ -87,6 +110,13 @@ export function NotificationsPage() {
         notifications.map((n) => {
           const actorId = n.actor_id || n.actor_snapshot.id;
           const isFollow = n.type === 'follow';
+          const isFriendRequest = n.type === 'friendship_request';
+          const friendshipId = n.friendship_id || n.target_id;
+          const canRespondFriend =
+            isFriendRequest &&
+            !n.actor_blocked &&
+            n.friendship_status === 'pending_received' &&
+            !!friendshipId;
 
           return (
             <Card
@@ -118,6 +148,34 @@ export function NotificationsPage() {
                   <p className="mt-0.5 text-xs text-slate-400">
                     {formatDate(n.created_at, i18n.language)}
                   </p>
+
+                  {canRespondFriend && (
+                    <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                      <Button
+                        size="sm"
+                        className="rounded-full"
+                        disabled={acceptFriendMutation.isPending}
+                        onClick={() => acceptFriendMutation.mutate(friendshipId!)}
+                      >
+                        <Check className="h-3.5 w-3.5" />
+                        {t('friends.accept')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full"
+                        disabled={declineFriendMutation.isPending}
+                        onClick={() => declineFriendMutation.mutate(friendshipId!)}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                        {t('friends.decline')}
+                      </Button>
+                    </div>
+                  )}
+
+                  {isFriendRequest && n.friendship_status === 'friends' && (
+                    <p className="mt-2 text-xs font-medium text-brand-700">{t('community.friends')}</p>
+                  )}
 
                   {isFollow && actorId && !n.actor_blocked && (
                     <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>

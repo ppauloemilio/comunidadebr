@@ -37,7 +37,32 @@ async function profileStats(db: Db, userId: string) {
   const followers = (await db.prepare('SELECT COUNT(*)::int as c FROM follows WHERE following_id = ?').get(userId)) as { c: number };
   const following = (await db.prepare('SELECT COUNT(*)::int as c FROM follows WHERE follower_id = ?').get(userId)) as { c: number };
   const posts = (await db.prepare('SELECT COUNT(*)::int as c FROM posts WHERE author_id = ? AND is_active = 1').get(userId)) as { c: number };
-  return { followers_count: followers.c, following_count: following.c, posts_count: posts.c };
+  const friends = (await db.prepare(
+    `SELECT COUNT(*)::int as c FROM friendships
+     WHERE status = 'accepted' AND (requester_id = ? OR receiver_id = ?)`
+  ).get(userId, userId)) as { c: number };
+  return {
+    followers_count: followers.c,
+    following_count: following.c,
+    posts_count: posts.c,
+    friends_count: friends.c,
+  };
+}
+
+async function friendshipWith(db: Db, meId: string, otherId: string) {
+  const row = (await db.prepare(
+    `SELECT * FROM friendships WHERE
+     (requester_id = ? AND receiver_id = ?) OR (requester_id = ? AND receiver_id = ?)`
+  ).get(meId, otherId, otherId, meId)) as
+    | { id: string; requester_id: string; receiver_id: string; status: string }
+    | undefined;
+  if (!row) return { friendship_status: 'none' as const, friendship_id: null as string | null };
+  if (row.status === 'accepted') return { friendship_status: 'friends' as const, friendship_id: row.id };
+  if (row.status === 'pending') {
+    if (row.requester_id === meId) return { friendship_status: 'pending_sent' as const, friendship_id: row.id };
+    return { friendship_status: 'pending_received' as const, friendship_id: row.id };
+  }
+  return { friendship_status: 'none' as const, friendship_id: null as string | null };
 }
 
 router.get('/', authMiddleware, async (req, res) => {
@@ -75,9 +100,21 @@ router.get('/', authMiddleware, async (req, res) => {
 
 router.get('/:id/posts', authMiddleware, async (req: AuthRequest, res) => {
   const db = await getDb();
-  const posts = await db.prepare(
+  const authorId = String(req.params.id);
+  const me = req.user!.id;
+  let posts = (await db.prepare(
     'SELECT * FROM posts WHERE author_id = ? AND is_active = 1 ORDER BY created_at DESC'
-  ).all(req.params.id);
+  ).all(authorId)) as Record<string, unknown>[];
+
+  if (authorId !== me) {
+    const friendship = await friendshipWith(db, me, authorId);
+    const isFriend = friendship.friendship_status === 'friends';
+    posts = posts.filter((p) => {
+      const visibility = String(p.visibility || 'public');
+      if (visibility === 'friends') return isFriend;
+      return true;
+    });
+  }
 
   const likes = (await db.prepare('SELECT post_id FROM likes WHERE user_id = ?').all(req.user!.id)) as { post_id: string }[];
   const likedSet = new Set(likes.map((l) => l.post_id));
@@ -118,6 +155,7 @@ router.get('/:id/posts', authMiddleware, async (req: AuthRequest, res) => {
         comments_count: row.comments_count,
         created_at: row.created_at,
         updated_at: row.updated_at || null,
+        visibility: (row.visibility as string) || 'public',
         author_snapshot: {
           ...parseJson(row.author_snapshot as string, {}),
           is_premium: authorIsPremium,
@@ -138,6 +176,7 @@ router.get('/:id/posts', authMiddleware, async (req: AuthRequest, res) => {
               comments_count: sharedRow.comments_count,
               created_at: sharedRow.created_at,
               updated_at: sharedRow.updated_at || null,
+              visibility: (sharedRow.visibility as string) || 'public',
               author_snapshot: parseJson(sharedRow.author_snapshot as string, {}),
               liked_by_me: likedSet.has(sharedRow.id as string),
               shared_post_id: null,
@@ -170,7 +209,13 @@ router.get('/:id', authMiddleware, async (req: AuthRequest, res) => {
     const isFollowing = await db.prepare(
       'SELECT id FROM follows WHERE follower_id = ? AND following_id = ?'
     ).get(req.user!.id, user.id);
-    const publicProfile = { ...(await formatUser(user, profile, stats)), skills, is_following: !!isFollowing };
+    const friendship = await friendshipWith(db, req.user!.id, user.id);
+    const publicProfile = {
+      ...(await formatUser(user, profile, stats)),
+      skills,
+      is_following: !!isFollowing,
+      ...friendship,
+    };
     if (!publicProfile.show_city_on_profile) {
       publicProfile.current_city = '';
       publicProfile.current_state = '';

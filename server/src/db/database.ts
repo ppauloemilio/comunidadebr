@@ -197,6 +197,7 @@ async function migrate(database: Db) {
       is_promoted INTEGER DEFAULT 0,
       promoted_until TEXT,
       author_snapshot TEXT NOT NULL,
+      visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
 
@@ -330,6 +331,7 @@ async function migrate(database: Db) {
   try {
     await database.exec(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS updated_at TEXT`);
     await database.exec(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS shared_post_id TEXT`);
+    await database.exec(`ALTER TABLE posts ADD COLUMN IF NOT EXISTS visibility TEXT DEFAULT 'public'`);
     await database.exec(`ALTER TABLE comments ADD COLUMN IF NOT EXISTS parent_id TEXT`);
     await database.exec(`CREATE INDEX IF NOT EXISTS idx_comments_post ON comments(post_id, created_at)`);
     await database.exec(`CREATE INDEX IF NOT EXISTS idx_likes_post ON likes(post_id, created_at)`);
