@@ -214,8 +214,27 @@
   "messages": {
     "title": "Mensagens",
     "placeholder": "Digite sua mensagem...",
+    "editPlaceholder": "Edite a mensagem...",
     "empty": "Nenhuma conversa ainda.",
-    "start": "Iniciar conversa"
+    "selectConversation": "Selecione uma conversa",
+    "start": "Iniciar conversa",
+    "conversation": "Conversa",
+    "conversations": "Conversas",
+    "friends": "Amigos",
+    "noFriends": "Nenhum amigo para encaminhar.",
+    "unknownUser": "Usuário",
+    "noMessagesYet": "Nenhuma mensagem ainda.",
+    "attachment": "Anexo",
+    "openAttachment": "Abrir anexo",
+    "attach": "Anexar arquivo",
+    "messageActions": "Ações da mensagem",
+    "edit": "Editar",
+    "editing": "Editando mensagem",
+    "edited": "editada",
+    "delete": "Apagar",
+    "deleteConfirm": "Apagar esta mensagem?",
+    "forward": "Encaminhar",
+    "forwardTo": "Encaminhar para"
   },
   "notifications": {
     "title": "Notificações",

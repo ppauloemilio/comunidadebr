@@ -348,8 +348,9 @@ async function migrate(database: Db) {
         UNIQUE(blocker_id, blocked_id)
       )
     `);
+    await database.exec(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at TEXT`);
   } catch (err) {
-    console.error('cover_position/blocks schema patch:', err);
+    console.error('cover_position/blocks/messages schema patch:', err);
   }
 
   try {

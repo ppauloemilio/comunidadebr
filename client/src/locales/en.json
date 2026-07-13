@@ -214,8 +214,27 @@
   "messages": {
     "title": "Messages",
     "placeholder": "Type your message...",
+    "editPlaceholder": "Edit the message...",
     "empty": "No conversations yet.",
-    "start": "Start conversation"
+    "selectConversation": "Select a conversation",
+    "start": "Start conversation",
+    "conversation": "Conversation",
+    "conversations": "Conversations",
+    "friends": "Friends",
+    "noFriends": "No friends to forward to.",
+    "unknownUser": "User",
+    "noMessagesYet": "No messages yet.",
+    "attachment": "Attachment",
+    "openAttachment": "Open attachment",
+    "attach": "Attach file",
+    "messageActions": "Message actions",
+    "edit": "Edit",
+    "editing": "Editing message",
+    "edited": "edited",
+    "delete": "Delete",
+    "deleteConfirm": "Delete this message?",
+    "forward": "Forward",
+    "forwardTo": "Forward to"
   },
   "notifications": {
     "title": "Notifications",
