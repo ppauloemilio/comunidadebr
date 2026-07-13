@@ -236,6 +236,14 @@ async function migrate(database: Db) {
       UNIQUE(follower_id, following_id)
     );
 
+    CREATE TABLE IF NOT EXISTS blocks (
+      id TEXT PRIMARY KEY,
+      blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (NOW()::text),
+      UNIQUE(blocker_id, blocked_id)
+    );
+
     CREATE TABLE IF NOT EXISTS friendships (
       id TEXT PRIMARY KEY,
       requester_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -331,8 +339,17 @@ async function migrate(database: Db) {
 
   try {
     await database.exec(`ALTER TABLE public_profiles ADD COLUMN IF NOT EXISTS cover_position TEXT DEFAULT '50% 50%'`);
+    await database.exec(`
+      CREATE TABLE IF NOT EXISTS blocks (
+        id TEXT PRIMARY KEY,
+        blocker_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        blocked_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        created_at TEXT NOT NULL DEFAULT (NOW()::text),
+        UNIQUE(blocker_id, blocked_id)
+      )
+    `);
   } catch (err) {
-    console.error('cover_position schema patch:', err);
+    console.error('cover_position/blocks schema patch:', err);
   }
 
   try {

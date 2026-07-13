@@ -12,6 +12,12 @@ router.post('/follow/:userId', authMiddleware, async (req: AuthRequest, res) => 
   const target = await db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
   if (!target) return res.status(404).json({ error: 'Usuário não encontrado' });
 
+  const blocked = await db.prepare(
+    `SELECT id FROM blocks WHERE
+     (blocker_id = ? AND blocked_id = ?) OR (blocker_id = ? AND blocked_id = ?)`
+  ).get(req.user!.id, userId, userId, req.user!.id);
+  if (blocked) return res.status(403).json({ error: 'Não é possível seguir este usuário' });
+
   const user = (await db.prepare('SELECT * FROM users WHERE id = ?').get(req.user!.id)) as UserRow;
   try {
     await db.prepare('INSERT INTO follows (id, follower_id, following_id, follower_snapshot) VALUES (?, ?, ?, ?)').run(
@@ -27,6 +33,35 @@ router.post('/follow/:userId', authMiddleware, async (req: AuthRequest, res) => 
 router.delete('/follow/:userId', authMiddleware, async (req: AuthRequest, res) => {
   const db = await getDb();
   await db.prepare('DELETE FROM follows WHERE follower_id = ? AND following_id = ?').run(req.user!.id, req.params.userId);
+  res.json({ ok: true });
+});
+
+router.post('/block/:userId', authMiddleware, async (req: AuthRequest, res) => {
+  const userId = Array.isArray(req.params.userId) ? req.params.userId[0] : req.params.userId;
+  if (userId === req.user!.id) return res.status(400).json({ error: 'Não pode bloquear a si mesmo' });
+
+  const db = await getDb();
+  const target = await db.prepare('SELECT id FROM users WHERE id = ?').get(userId);
+  if (!target) return res.status(404).json({ error: 'Usuário não encontrado' });
+
+  try {
+    await db.prepare('INSERT INTO blocks (id, blocker_id, blocked_id) VALUES (?, ?, ?)').run(
+      uuid(), req.user!.id, userId
+    );
+  } catch {
+    return res.status(409).json({ error: 'Usuário já bloqueado' });
+  }
+
+  // Remove follows nos dois sentidos
+  await db.prepare('DELETE FROM follows WHERE follower_id = ? AND following_id = ?').run(req.user!.id, userId);
+  await db.prepare('DELETE FROM follows WHERE follower_id = ? AND following_id = ?').run(userId, req.user!.id);
+
+  res.status(201).json({ ok: true });
+});
+
+router.delete('/block/:userId', authMiddleware, async (req: AuthRequest, res) => {
+  const db = await getDb();
+  await db.prepare('DELETE FROM blocks WHERE blocker_id = ? AND blocked_id = ?').run(req.user!.id, req.params.userId);
   res.json({ ok: true });
 });
 
@@ -82,12 +117,63 @@ router.get('/notifications', authMiddleware, async (req: AuthRequest, res) => {
   const notifications = await db.prepare(
     'SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50'
   ).all(req.user!.id);
+
+  const actorIds = [...new Set(
+    notifications.map((n) => (n as { actor_id: string }).actor_id).filter(Boolean)
+  )];
+
+  const followingSet = new Set<string>();
+  const blockedSet = new Set<string>();
+  if (actorIds.length) {
+    const placeholders = actorIds.map(() => '?').join(',');
+    const following = (await db.prepare(
+      `SELECT following_id FROM follows WHERE follower_id = ? AND following_id IN (${placeholders})`
+    ).all(req.user!.id, ...actorIds)) as { following_id: string }[];
+    for (const row of following) followingSet.add(row.following_id);
+
+    const blocked = (await db.prepare(
+      `SELECT blocked_id FROM blocks WHERE blocker_id = ? AND blocked_id IN (${placeholders})`
+    ).all(req.user!.id, ...actorIds)) as { blocked_id: string }[];
+    for (const row of blocked) blockedSet.add(row.blocked_id);
+  }
+
   res.json(
-    notifications.map((n) => ({
-      ...n,
-      actor_snapshot: parseJson((n as { actor_snapshot: string }).actor_snapshot, {}),
-      is_read: !!(n as { is_read: number }).is_read,
-    }))
+    notifications.map((n) => {
+      const row = n as {
+        id: string;
+        type: string;
+        actor_id: string;
+        target_type: string | null;
+        target_id: string | null;
+        actor_snapshot: string;
+        created_at: string;
+        is_read: number;
+      };
+      const snap = parseJson(row.actor_snapshot, {}) as {
+        id?: string;
+        full_name?: string;
+        username?: string;
+        avatar_url?: string;
+      };
+      const actorId = row.actor_id || snap.id || '';
+      return {
+        id: row.id,
+        type: row.type,
+        actor_id: actorId,
+        target_type: row.target_type,
+        target_id: row.target_id,
+        actor_snapshot: {
+          id: actorId,
+          full_name: snap.full_name || 'Usuário',
+          username: snap.username || '',
+          avatar_url: snap.avatar_url,
+        },
+        created_at: row.created_at,
+        is_read: !!row.is_read,
+        i_follow_actor: followingSet.has(actorId),
+        actor_blocked: blockedSet.has(actorId),
+      };
+    })
   );
 });
 
