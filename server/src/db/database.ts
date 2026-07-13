@@ -290,6 +290,7 @@ async function migrate(database: Db) {
       participant_ids TEXT NOT NULL,
       last_message TEXT,
       unread_count TEXT DEFAULT '{}',
+      hidden_for TEXT DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (NOW()::text),
       updated_at TEXT NOT NULL DEFAULT (NOW()::text)
     );
@@ -351,6 +352,7 @@ async function migrate(database: Db) {
       )
     `);
     await database.exec(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS updated_at TEXT`);
+    await database.exec(`ALTER TABLE conversations ADD COLUMN IF NOT EXISTS hidden_for TEXT DEFAULT '[]'`);
   } catch (err) {
     console.error('cover_position/blocks/messages schema patch:', err);
   }

@@ -16,6 +16,7 @@ import {
   SendHorizontal,
   Smile,
   Trash2,
+  MoreVertical,
   X,
 } from 'lucide-react';
 import { api, mediaUrl, uploadFile } from '@/lib/api';
@@ -132,6 +133,7 @@ export function MessagesPage() {
   const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].id);
   const [chatSearchOpen, setChatSearchOpen] = useState(false);
   const [chatSearch, setChatSearch] = useState('');
+  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
@@ -222,6 +224,24 @@ export function MessagesPage() {
     },
   });
 
+  const deleteConversationMutation = useMutation({
+    mutationFn: (conversationId: string) =>
+      api(`/conversations/${conversationId}`, { method: 'DELETE' }),
+    onSuccess: (_data, conversationId) => {
+      setHeaderMenuOpen(false);
+      qc.invalidateQueries({ queryKey: ['conversations'] });
+      qc.invalidateQueries({ queryKey: ['messages-count'] });
+      qc.removeQueries({ queryKey: ['messages', conversationId] });
+      if (activeId === conversationId) setSearchParams({});
+    },
+  });
+
+  const confirmDeleteConversation = (conversationId: string) => {
+    if (window.confirm(t('messages.deleteConversationConfirm'))) {
+      deleteConversationMutation.mutate(conversationId);
+    }
+  };
+
   const forwardMutation = useMutation({
     mutationFn: async ({
       message,
@@ -299,6 +319,7 @@ export function MessagesPage() {
     setEmojiOpen(false);
     setChatSearchOpen(false);
     setChatSearch('');
+    setHeaderMenuOpen(false);
   }, [activeId]);
 
   useEffect(() => {
@@ -421,32 +442,49 @@ export function MessagesPage() {
               const active = activeId === c.id;
               const time = chatListTime(c.last_message?.created_at || c.updated_at, i18n.language);
               return (
-                <button
+                <div
                   key={c.id}
-                  type="button"
-                  onClick={() => setSearchParams({ conversation: c.id })}
                   className={cn(
-                    'flex w-full items-center gap-2 border-b border-[#f0f2f5] px-3 py-1.5 text-left transition-colors hover:bg-[#f5f6f6]',
+                    'group flex w-full items-center gap-1 border-b border-[#f0f2f5] pr-1 transition-colors hover:bg-[#f5f6f6]',
                     active && 'bg-[#f0f2f5]'
                   )}
                 >
-                  <p className="min-w-0 flex-1 truncate text-[14px] font-medium text-[#111b21]">{name}</p>
-                  <div className="flex shrink-0 items-center gap-1.5">
-                    {c.unread > 0 && (
-                      <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[10px] font-semibold text-white">
-                        {c.unread > 99 ? '99+' : c.unread}
-                      </span>
-                    )}
-                    <span
-                      className={cn(
-                        'text-[11px]',
-                        c.unread > 0 ? 'font-medium text-[#25d366]' : 'text-[#667781]'
+                  <button
+                    type="button"
+                    onClick={() => setSearchParams({ conversation: c.id })}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-3 py-1.5 text-left"
+                  >
+                    <p className="min-w-0 flex-1 truncate text-[14px] font-medium text-[#111b21]">{name}</p>
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      {c.unread > 0 && (
+                        <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[10px] font-semibold text-white">
+                          {c.unread > 99 ? '99+' : c.unread}
+                        </span>
                       )}
-                    >
-                      {time}
-                    </span>
-                  </div>
-                </button>
+                      <span
+                        className={cn(
+                          'text-[11px]',
+                          c.unread > 0 ? 'font-medium text-[#25d366]' : 'text-[#667781]'
+                        )}
+                      >
+                        {time}
+                      </span>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    className="shrink-0 rounded-full p-1.5 text-[#667781] opacity-0 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100"
+                    title={t('messages.deleteConversation')}
+                    aria-label={t('messages.deleteConversation')}
+                    disabled={deleteConversationMutation.isPending}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      confirmDeleteConversation(c.id);
+                    }}
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               );
             })
           )}
@@ -483,6 +521,7 @@ export function MessagesPage() {
                   )}
                   aria-label={t('messages.searchInChat')}
                   onClick={() => {
+                    setHeaderMenuOpen(false);
                     setChatSearchOpen((v) => {
                       if (v) setChatSearch('');
                       return !v;
@@ -491,6 +530,32 @@ export function MessagesPage() {
                 >
                   <Search className="h-5 w-5" />
                 </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    className={cn(
+                      'rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef]',
+                      headerMenuOpen && 'bg-[#e9edef]'
+                    )}
+                    aria-label={t('messages.messageActions')}
+                    onClick={() => setHeaderMenuOpen((v) => !v)}
+                  >
+                    <MoreVertical className="h-5 w-5" />
+                  </button>
+                  {headerMenuOpen && (
+                    <div className="absolute right-0 z-30 mt-1 w-52 overflow-hidden rounded-lg bg-white py-1 shadow-xl ring-1 ring-black/5">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
+                        disabled={deleteConversationMutation.isPending}
+                        onClick={() => activeId && confirmDeleteConversation(activeId)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                        {t('messages.deleteConversation')}
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
               {chatSearchOpen && (
                 <div className="border-t border-[#e9edef] px-3 py-1.5">

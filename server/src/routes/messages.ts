@@ -106,8 +106,14 @@ async function insertMessage(opts: {
   }
 
   await db.prepare(
-    'UPDATE conversations SET last_message = ?, unread_count = ?, updated_at = ? WHERE id = ?'
-  ).run(JSON.stringify(lastMessage), JSON.stringify(unread), now, opts.conversationId);
+    'UPDATE conversations SET last_message = ?, unread_count = ?, updated_at = ?, hidden_for = ? WHERE id = ?'
+  ).run(
+    JSON.stringify(lastMessage),
+    JSON.stringify(unread),
+    now,
+    JSON.stringify([]), // nova mensagem reabre a conversa para todos
+    opts.conversationId
+  );
 
   for (const p of opts.participants) {
     if (p !== opts.senderId) {
@@ -128,7 +134,9 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
 
   const mine = conversations.filter((c) => {
     const participants = parseJson(c.participant_ids as string, [] as string[]);
-    return participants.includes(req.user!.id);
+    if (!participants.includes(req.user!.id)) return false;
+    const hidden = parseJson(c.hidden_for as string | null, [] as string[]);
+    return !hidden.includes(req.user!.id);
   });
 
   const allIds = mine.flatMap((c) => parseJson(c.participant_ids as string, [] as string[]));
@@ -139,11 +147,13 @@ router.get('/', authMiddleware, async (req: AuthRequest, res) => {
 
 router.get('/unread-count', authMiddleware, async (req: AuthRequest, res) => {
   const db = await getDb();
-  const conversations = await db.prepare('SELECT unread_count, participant_ids FROM conversations').all();
+  const conversations = await db.prepare('SELECT unread_count, participant_ids, hidden_for FROM conversations').all();
   let total = 0;
   for (const c of conversations) {
     const participants = parseJson((c as { participant_ids: string }).participant_ids, [] as string[]);
     if (!participants.includes(req.user!.id)) continue;
+    const hidden = parseJson((c as { hidden_for?: string }).hidden_for || '[]', [] as string[]);
+    if (hidden.includes(req.user!.id)) continue;
     const unread = parseJson((c as { unread_count: string }).unread_count, {} as Record<string, number>);
     total += unread[req.user!.id] || 0;
   }
@@ -167,6 +177,16 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   const users = await loadUsersMap(allParticipants);
 
   if (existing) {
+    // Reabrir se o usuário tinha excluído a conversa da lista
+    const hidden = parseJson(existing.hidden_for as string | null, [] as string[]);
+    if (hidden.includes(req.user!.id)) {
+      const nextHidden = hidden.filter((id) => id !== req.user!.id);
+      await db.prepare('UPDATE conversations SET hidden_for = ? WHERE id = ?').run(
+        JSON.stringify(nextHidden),
+        existing.id
+      );
+      existing.hidden_for = JSON.stringify(nextHidden);
+    }
     return res.json(conversationPayload(existing, req.user!.id, users));
   }
 
@@ -175,11 +195,38 @@ router.post('/', authMiddleware, async (req: AuthRequest, res) => {
   for (const p of allParticipants) unread[p] = 0;
 
   await db.prepare(
-    'INSERT INTO conversations (id, type, business_id, participant_ids, unread_count) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, type, business_id || null, JSON.stringify(allParticipants), JSON.stringify(unread));
+    'INSERT INTO conversations (id, type, business_id, participant_ids, unread_count, hidden_for) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, type, business_id || null, JSON.stringify(allParticipants), JSON.stringify(unread), JSON.stringify([]));
 
   const conversation = (await db.prepare('SELECT * FROM conversations WHERE id = ?').get(id)) as Record<string, unknown>;
   res.status(201).json(conversationPayload(conversation, req.user!.id, users));
+});
+
+/** Exclui a conversa da lista do usuário atual (o outro participante continua vendo). */
+router.delete('/:id', authMiddleware, async (req: AuthRequest, res) => {
+  const conversationId = String(req.params.id);
+  const checked = await assertParticipant(conversationId, req.user!.id);
+  if ('error' in checked) return res.status(checked.status).json({ error: checked.error });
+
+  const db = await getDb();
+  const hidden = parseJson(
+    (checked.conversation as { hidden_for?: string }).hidden_for || '[]',
+    [] as string[]
+  );
+  if (!hidden.includes(req.user!.id)) hidden.push(req.user!.id);
+
+  const unread = parseJson(
+    (checked.conversation as { unread_count: string }).unread_count,
+    {} as Record<string, number>
+  );
+  unread[req.user!.id] = 0;
+
+  await db.prepare(
+    'UPDATE conversations SET hidden_for = ?, unread_count = ? WHERE id = ?'
+  ).run(JSON.stringify(hidden), JSON.stringify(unread), conversationId);
+
+  io?.to(conversationId).emit('conversation_hidden', { id: conversationId, user_id: req.user!.id });
+  res.json({ ok: true });
 });
 
 router.get('/:id/messages', authMiddleware, async (req: AuthRequest, res) => {
@@ -403,8 +450,8 @@ async function apiCreateConversation(meId: string, participantIds: string[]) {
   const unread: Record<string, number> = {};
   for (const p of allParticipants) unread[p] = 0;
   await db.prepare(
-    'INSERT INTO conversations (id, type, business_id, participant_ids, unread_count) VALUES (?, ?, ?, ?, ?)'
-  ).run(id, 'user_user', null, JSON.stringify(allParticipants), JSON.stringify(unread));
+    'INSERT INTO conversations (id, type, business_id, participant_ids, unread_count, hidden_for) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, 'user_user', null, JSON.stringify(allParticipants), JSON.stringify(unread), JSON.stringify([]));
   return { id };
 }
 

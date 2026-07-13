@@ -252,6 +252,8 @@
     "edited": "edited",
     "delete": "Delete",
     "deleteConfirm": "Delete this message?",
+    "deleteConversation": "Delete chat",
+    "deleteConversationConfirm": "Remove this chat from your list? The other person will still see the history.",
     "forward": "Forward",
     "forwardTo": "Forward to",
     "searchPlaceholder": "Search or start a new chat",

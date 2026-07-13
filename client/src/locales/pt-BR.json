@@ -252,6 +252,8 @@
     "edited": "editada",
     "delete": "Apagar",
     "deleteConfirm": "Apagar esta mensagem?",
+    "deleteConversation": "Excluir conversa",
+    "deleteConversationConfirm": "Excluir esta conversa da sua lista? O outro usuário continua vendo o histórico.",
     "forward": "Encaminhar",
     "forwardTo": "Encaminhar para",
     "searchPlaceholder": "Pesquisar ou começar uma nova conversa",
