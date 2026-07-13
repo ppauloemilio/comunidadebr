@@ -6,13 +6,10 @@ import { io } from 'socket.io-client';
 import {
   Check,
   CheckCheck,
-  ChevronDown,
   FileText,
   Forward,
   Image as ImageIcon,
   MessageCircle,
-  Mic,
-  MoreVertical,
   Pencil,
   Plus,
   Search,
@@ -22,6 +19,7 @@ import {
   X,
 } from 'lucide-react';
 import { api, mediaUrl, uploadFile } from '@/lib/api';
+import { EMOJI_CATEGORIES } from '@/lib/emojis';
 import { useAuth } from '@/hooks/useAuth';
 import { Avatar } from '@/components/ui/Avatar';
 import { cn } from '@/lib/utils';
@@ -123,8 +121,6 @@ export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const activeId = searchParams.get('conversation');
   const [text, setText] = useState('');
-  const [menuId, setMenuId] = useState<string | null>(null);
-  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [editing, setEditing] = useState<Message | null>(null);
   const [forwardMsg, setForwardMsg] = useState<Message | null>(null);
   const [newChatOpen, setNewChatOpen] = useState(false);
@@ -132,10 +128,16 @@ export function MessagesPage() {
   const [listFilter, setListFilter] = useState<ListFilter>('all');
   const [search, setSearch] = useState('');
   const [attachMenu, setAttachMenu] = useState(false);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [emojiCategory, setEmojiCategory] = useState(EMOJI_CATEGORIES[0].id);
+  const [chatSearchOpen, setChatSearchOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const imageRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const chatSearchRef = useRef<HTMLInputElement>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const { data: conversations = [] } = useQuery({
     queryKey: ['conversations'],
@@ -216,8 +218,6 @@ export function MessagesPage() {
     mutationFn: (id: string) =>
       api(`/conversations/${activeId}/messages/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
-      setMenuId(null);
-      setMenuPos(null);
       invalidateChat();
     },
   });
@@ -242,8 +242,6 @@ export function MessagesPage() {
       }),
     onSuccess: (data: { conversation_id: string }) => {
       setForwardMsg(null);
-      setMenuId(null);
-      setMenuPos(null);
       qc.invalidateQueries({ queryKey: ['conversations'] });
       setSearchParams({ conversation: data.conversation_id });
     },
@@ -297,20 +295,15 @@ export function MessagesPage() {
   useEffect(() => {
     setEditing(null);
     setText('');
-    setMenuId(null);
-    setMenuPos(null);
     setAttachMenu(false);
+    setEmojiOpen(false);
+    setChatSearchOpen(false);
+    setChatSearch('');
   }, [activeId]);
 
   useEffect(() => {
-    if (!menuId) return;
-    const close = () => {
-      setMenuId(null);
-      setMenuPos(null);
-    };
-    window.addEventListener('click', close);
-    return () => window.removeEventListener('click', close);
-  }, [menuId]);
+    if (chatSearchOpen) chatSearchRef.current?.focus();
+  }, [chatSearchOpen]);
 
   const handleSend = () => {
     const value = text.trim();
@@ -320,6 +313,7 @@ export function MessagesPage() {
       return;
     }
     sendMutation.mutate({ content: value });
+    setEmojiOpen(false);
   };
 
   const handleAttach = async (file: File) => {
@@ -341,24 +335,26 @@ export function MessagesPage() {
     }
   };
 
-  const openMessageMenu = (e: React.MouseEvent<HTMLElement>, messageId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setMenuId(messageId);
-    setMenuPos({ x: Math.min(rect.left, window.innerWidth - 200), y: rect.bottom + 4 });
+  const insertEmoji = (emoji: string) => {
+    setText((prev) => prev + emoji);
+    inputRef.current?.focus();
   };
+
+  const visibleMessages = useMemo(() => {
+    const q = chatSearch.trim().toLowerCase();
+    if (!q) return messages;
+    return messages.filter((m) => m.content?.toLowerCase().includes(q));
+  }, [messages, chatSearch]);
+
+  useEffect(() => {
+    if (!chatSearch.trim() || visibleMessages.length === 0) return;
+    const el = messageRefs.current[visibleMessages[visibleMessages.length - 1].id];
+    el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, [chatSearch, visibleMessages]);
 
   const otherName = activeConversation?.other_user?.full_name || t('messages.conversation');
-  const showComposerSend = text.trim().length > 0 || !!editing;
-
-  const previewFor = (c: Conversation) => {
-    const raw = c.last_message?.content || '';
-    if (c.last_message?.attachment_url && (!raw || raw === '📎' || raw.startsWith('📎'))) {
-      return t('messages.attachment');
-    }
-    return raw || t('messages.noMessagesYet');
-  };
+  const activeEmojiCategory =
+    EMOJI_CATEGORIES.find((c) => c.id === emojiCategory) || EMOJI_CATEGORIES[0];
 
   return (
     <div className="flex h-full min-h-[calc(100vh-3.5rem)] overflow-hidden bg-white md:h-[calc(100vh-3.5rem-1.5rem)] md:rounded-xl md:border md:border-[#d1d7db] md:shadow-sm">
@@ -369,21 +365,16 @@ export function MessagesPage() {
           activeId ? 'hidden md:flex' : 'flex'
         )}
       >
-        <div className="flex items-center justify-between bg-[#f0f2f5] px-4 py-3">
-          <h1 className="text-[22px] font-bold tracking-tight text-[#111b21]">{t('messages.title')}</h1>
-          <div className="flex items-center gap-1">
-            <button
-              type="button"
-              className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
-              aria-label={t('messages.newChat')}
-              onClick={() => setNewChatOpen(true)}
-            >
-              <Plus className="h-5 w-5" />
-            </button>
-            <button type="button" className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]" aria-label={t('messages.messageActions')}>
-              <MoreVertical className="h-5 w-5" />
-            </button>
-          </div>
+        <div className="flex items-center justify-between bg-[#f0f2f5] px-4 py-1.5">
+          <h1 className="text-lg font-bold tracking-tight text-[#111b21]">{t('messages.title')}</h1>
+          <button
+            type="button"
+            className="rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef]"
+            aria-label={t('messages.newChat')}
+            onClick={() => setNewChatOpen(true)}
+          >
+            <Plus className="h-5 w-5" />
+          </button>
         </div>
 
         <div className="bg-white px-3 pb-2 pt-2">
@@ -435,31 +426,25 @@ export function MessagesPage() {
                   type="button"
                   onClick={() => setSearchParams({ conversation: c.id })}
                   className={cn(
-                    'flex w-full items-center gap-3 border-b border-[#f0f2f5] px-3 py-3 text-left transition-colors hover:bg-[#f5f6f6]',
+                    'flex w-full items-center gap-2 border-b border-[#f0f2f5] px-3 py-1.5 text-left transition-colors hover:bg-[#f5f6f6]',
                     active && 'bg-[#f0f2f5]'
                   )}
                 >
-                  <Avatar name={name} src={c.other_user?.avatar_url} className="h-12 w-12 shrink-0" />
-                  <div className="min-w-0 flex-1 border-b-0">
-                    <div className="flex items-baseline justify-between gap-2">
-                      <p className="truncate text-[16px] font-normal text-[#111b21]">{name}</p>
-                      <span
-                        className={cn(
-                          'shrink-0 text-[12px]',
-                          c.unread > 0 ? 'font-medium text-[#25d366]' : 'text-[#667781]'
-                        )}
-                      >
-                        {time}
+                  <p className="min-w-0 flex-1 truncate text-[14px] font-medium text-[#111b21]">{name}</p>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {c.unread > 0 && (
+                      <span className="flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-[#25d366] px-1 text-[10px] font-semibold text-white">
+                        {c.unread > 99 ? '99+' : c.unread}
                       </span>
-                    </div>
-                    <div className="mt-0.5 flex items-center justify-between gap-2">
-                      <p className="truncate text-[14px] text-[#667781]">{previewFor(c)}</p>
-                      {c.unread > 0 && (
-                        <span className="flex h-[20px] min-w-[20px] shrink-0 items-center justify-center rounded-full bg-[#25d366] px-1.5 text-[11px] font-semibold text-white">
-                          {c.unread > 99 ? '99+' : c.unread}
-                        </span>
+                    )}
+                    <span
+                      className={cn(
+                        'text-[11px]',
+                        c.unread > 0 ? 'font-medium text-[#25d366]' : 'text-[#667781]'
                       )}
-                    </div>
+                    >
+                      {time}
+                    </span>
                   </div>
                 </button>
               );
@@ -477,78 +462,151 @@ export function MessagesPage() {
       >
         {activeId ? (
           <>
-            <header className="flex items-center gap-3 border-l border-transparent bg-[#f0f2f5] px-4 py-2.5">
-              <button
-                type="button"
-                className="mr-1 text-[#54656f] md:hidden"
-                onClick={() => setSearchParams({})}
-                aria-label={t('common.back')}
-              >
-                ←
-              </button>
-              <Avatar name={otherName} src={activeConversation?.other_user?.avatar_url} className="h-10 w-10" />
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-[16px] font-medium text-[#111b21]">{otherName}</p>
-                <p className="truncate text-[13px] text-[#667781]">
-                  {activeConversation?.other_user?.username
-                    ? `@${activeConversation.other_user.username}`
-                    : t('messages.tapForInfo')}
-                </p>
+            <header className="flex flex-col bg-[#f0f2f5]">
+              <div className="flex items-center gap-2 px-3 py-1.5">
+                <button
+                  type="button"
+                  className="mr-1 text-[#54656f] md:hidden"
+                  onClick={() => setSearchParams({})}
+                  aria-label={t('common.back')}
+                >
+                  ←
+                </button>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-medium text-[#111b21]">{otherName}</p>
+                </div>
+                <button
+                  type="button"
+                  className={cn(
+                    'rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef]',
+                    chatSearchOpen && 'bg-[#e9edef] text-[#008069]'
+                  )}
+                  aria-label={t('messages.searchInChat')}
+                  onClick={() => {
+                    setChatSearchOpen((v) => {
+                      if (v) setChatSearch('');
+                      return !v;
+                    });
+                  }}
+                >
+                  <Search className="h-5 w-5" />
+                </button>
               </div>
-              <button type="button" className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]" aria-label={t('messages.searchInChat')}>
-                <Search className="h-5 w-5" />
-              </button>
-              <button type="button" className="rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]" aria-label={t('messages.messageActions')}>
-                <MoreVertical className="h-5 w-5" />
-              </button>
+              {chatSearchOpen && (
+                <div className="border-t border-[#e9edef] px-3 py-1.5">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[#54656f]" />
+                    <input
+                      ref={chatSearchRef}
+                      value={chatSearch}
+                      onChange={(e) => setChatSearch(e.target.value)}
+                      placeholder={t('messages.searchInChatPlaceholder')}
+                      className="h-8 w-full rounded-lg bg-white py-1 pl-8 pr-8 text-sm text-[#111b21] outline-none ring-1 ring-[#e9edef] focus:ring-[#25d366]"
+                    />
+                    {chatSearch && (
+                      <button
+                        type="button"
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-[#667781]"
+                        onClick={() => setChatSearch('')}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  {chatSearch.trim() && (
+                    <p className="mt-1 text-[11px] text-[#667781]">
+                      {t('messages.searchResults', { count: visibleMessages.length })}
+                    </p>
+                  )}
+                </div>
+              )}
             </header>
 
-            <div className="relative flex-1 overflow-y-auto px-4 py-3 md:px-16" style={CHAT_BG}>
+            <div className="relative flex-1 overflow-y-auto px-4 py-2 md:px-16" style={CHAT_BG}>
               {messages.length === 0 ? (
                 <div className="flex h-full items-center justify-center">
                   <p className="rounded-lg bg-white/80 px-4 py-2 text-sm text-[#667781] shadow-sm">
                     {t('messages.noMessagesYet')}
                   </p>
                 </div>
+              ) : visibleMessages.length === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <p className="rounded-lg bg-white/80 px-4 py-2 text-sm text-[#667781] shadow-sm">
+                    {t('messages.searchNoResults')}
+                  </p>
+                </div>
               ) : (
-                <div className="space-y-1">
-                  {messages.map((m) => {
+                <div className="space-y-0.5">
+                  {visibleMessages.map((m) => {
                     const mine = m.sender_id === user?.id;
                     const showText = m.content && m.content !== '📎' && !m.content.startsWith('📎 Anexo');
+                    const highlight =
+                      chatSearch.trim() &&
+                      m.content?.toLowerCase().includes(chatSearch.trim().toLowerCase());
                     return (
                       <div
                         key={m.id}
+                        ref={(el) => {
+                          messageRefs.current[m.id] = el;
+                        }}
                         className={cn('group flex', mine ? 'justify-end' : 'justify-start')}
-                        onContextMenu={(e) => openMessageMenu(e, m.id)}
                       >
                         <div
                           className={cn(
-                            'relative max-w-[85%] rounded-lg px-2.5 pb-1.5 pt-1.5 text-[14.2px] shadow-sm md:max-w-[65%]',
+                            'relative max-w-[85%] rounded-md px-2 pb-1 pt-4 text-[13px] shadow-sm md:max-w-[65%]',
                             mine
-                              ? 'rounded-tr-none bg-[#d9fdd3] text-[#111b21]'
-                              : 'rounded-tl-none bg-white text-[#111b21]'
+                              ? 'rounded-tr-sm bg-[#d9fdd3] text-[#111b21]'
+                              : 'rounded-tl-sm bg-white text-[#111b21]',
+                            highlight && 'ring-2 ring-[#25d366]/50'
                           )}
                         >
-                          <button
-                            type="button"
-                            className={cn(
-                              'absolute top-1 rounded p-0.5 text-[#667781]/60 opacity-0 transition-opacity group-hover:opacity-100',
-                              mine ? 'left-1' : 'right-1'
+                          <div className="absolute right-0.5 top-0.5 z-10 flex items-center gap-0.5 rounded bg-black/[0.04] px-0.5">
+                            {mine && (
+                              <button
+                                type="button"
+                                className="rounded p-0.5 text-[#54656f] hover:bg-white/80"
+                                title={t('messages.edit')}
+                                onClick={() => {
+                                  setEditing(m);
+                                  setText(m.content === '📎' ? '' : m.content.replace(/^Encaminhada:\s*/, ''));
+                                  inputRef.current?.focus();
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
                             )}
-                            onClick={(e) => openMessageMenu(e, m.id)}
-                            aria-label={t('messages.messageActions')}
-                          >
-                            <ChevronDown className="h-4 w-4" />
-                          </button>
+                            <button
+                              type="button"
+                              className="rounded p-0.5 text-[#54656f] hover:bg-white/80"
+                              title={t('messages.forward')}
+                              onClick={() => setForwardMsg(m)}
+                            >
+                              <Forward className="h-3 w-3" />
+                            </button>
+                            {mine && (
+                              <button
+                                type="button"
+                                className="rounded p-0.5 text-red-500 hover:bg-red-50"
+                                title={t('messages.delete')}
+                                onClick={() => {
+                                  if (window.confirm(t('messages.deleteConfirm'))) {
+                                    deleteMutation.mutate(m.id);
+                                  }
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
 
                           {m.attachment_url && (
-                            <div className="mb-1 mt-0.5">
+                            <div className="mb-0.5 mt-0.5 pr-14">
                               {isImageUrl(m.attachment_url) ? (
                                 <a href={mediaUrl(m.attachment_url)} target="_blank" rel="noreferrer">
                                   <img
                                     src={mediaUrl(m.attachment_url)}
                                     alt=""
-                                    className="max-h-64 max-w-full rounded-md object-cover"
+                                    className="max-h-52 max-w-full rounded object-cover"
                                   />
                                 </a>
                               ) : (
@@ -556,42 +614,39 @@ export function MessagesPage() {
                                   href={mediaUrl(m.attachment_url)}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="flex items-center gap-3 rounded-md bg-black/5 px-3 py-2.5"
+                                  className="flex items-center gap-2 rounded bg-black/5 px-2 py-1.5"
                                 >
-                                  <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#e74c3c] text-white">
-                                    <FileText className="h-5 w-5" />
+                                  <span className="flex h-8 w-8 items-center justify-center rounded bg-[#e74c3c] text-white">
+                                    <FileText className="h-4 w-4" />
                                   </span>
                                   <span className="min-w-0 flex-1">
-                                    <span className="block truncate text-sm font-medium">
-                                      {m.content && m.content !== '📎' ? m.content.replace(/^Encaminhada:\s*/, '') : t('messages.attachment')}
+                                    <span className="block truncate text-xs font-medium">
+                                      {m.content && m.content !== '📎'
+                                        ? m.content.replace(/^Encaminhada:\s*/, '')
+                                        : t('messages.attachment')}
                                     </span>
-                                    <span className="text-xs text-[#667781]">{t('messages.openAttachment')}</span>
                                   </span>
                                 </a>
                               )}
                             </div>
                           )}
 
-                          {showText && (
-                            <p className="whitespace-pre-wrap break-words pr-1 leading-[1.35]">
-                              {m.content}
-                            </p>
-                          )}
-
-                          <div className="mt-0.5 flex items-center justify-end gap-1 pl-8">
-                            {m.updated_at && (
-                              <span className="text-[11px] italic text-[#667781]">{t('messages.edited')}</span>
+                          <div className="flex flex-wrap items-end gap-x-2 gap-y-0">
+                            {showText && (
+                              <p className="min-w-0 flex-1 whitespace-pre-wrap break-words leading-snug">
+                                {m.content}
+                              </p>
                             )}
-                            <span className="text-[11px] text-[#667781]">
+                            <span className="ml-auto inline-flex shrink-0 items-center gap-0.5 self-end pb-px text-[10px] leading-none text-[#667781]">
+                              {m.updated_at && <span className="italic">{t('messages.edited')}·</span>}
                               {bubbleTime(m.created_at, i18n.language)}
+                              {mine &&
+                                (m.is_read ? (
+                                  <CheckCheck className="h-3 w-3 text-[#53bdeb]" />
+                                ) : (
+                                  <Check className="h-3 w-3 text-[#667781]" />
+                                ))}
                             </span>
-                            {mine && (
-                              m.is_read ? (
-                                <CheckCheck className="h-3.5 w-3.5 text-[#53bdeb]" />
-                              ) : (
-                                <Check className="h-3.5 w-3.5 text-[#667781]" />
-                              )
-                            )}
                           </div>
                         </div>
                       </div>
@@ -621,109 +676,143 @@ export function MessagesPage() {
               </div>
             )}
 
-            <footer className="relative flex items-end gap-2 bg-[#f0f2f5] px-3 py-2.5">
-              <input
-                ref={imageRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/gif"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleAttach(file);
-                }}
-              />
-              <input
-                ref={fileRef}
-                type="file"
-                accept="application/pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,image/webp,image/gif"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void handleAttach(file);
-                }}
-              />
-
-              <div className="relative">
-                <button
-                  type="button"
-                  className="mb-0.5 rounded-full p-2 text-[#54656f] hover:bg-[#e9edef] disabled:opacity-50"
-                  disabled={uploading || !!editing}
-                  onClick={() => setAttachMenu((v) => !v)}
-                  aria-label={t('messages.attach')}
-                >
-                  <Plus className="h-6 w-6" />
-                </button>
-                {attachMenu && (
-                  <div className="absolute bottom-12 left-0 z-20 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl">
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#f5f6f6]"
-                      onClick={() => imageRef.current?.click()}
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#007bfc] text-white">
-                        <ImageIcon className="h-4 w-4" />
-                      </span>
-                      {t('messages.photos')}
-                    </button>
-                    <button
-                      type="button"
-                      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#f5f6f6]"
-                      onClick={() => fileRef.current?.click()}
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#7f66ff] text-white">
-                        <FileText className="h-4 w-4" />
-                      </span>
-                      {t('messages.document')}
-                    </button>
+            <footer className="relative flex flex-col bg-[#f0f2f5]">
+              {emojiOpen && (
+                <div className="border-t border-[#e9edef] bg-white shadow-inner">
+                  <div className="flex gap-1 overflow-x-auto border-b border-[#e9edef] px-2 py-1.5">
+                    {EMOJI_CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setEmojiCategory(cat.id)}
+                        className={cn(
+                          'shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium',
+                          emojiCategory === cat.id
+                            ? 'bg-[#e7fce3] text-[#008069]'
+                            : 'bg-[#f0f2f5] text-[#54656f] hover:bg-[#e9edef]'
+                        )}
+                      >
+                        {t(cat.labelKey)}
+                      </button>
+                    ))}
                   </div>
-                )}
-              </div>
+                  <div className="grid max-h-44 grid-cols-8 gap-0.5 overflow-y-auto p-2 sm:grid-cols-10 md:grid-cols-12">
+                    {activeEmojiCategory.emojis.map((emoji) => (
+                      <button
+                        key={`${activeEmojiCategory.id}-${emoji}`}
+                        type="button"
+                        className="flex h-8 w-full items-center justify-center rounded text-xl hover:bg-[#f0f2f5]"
+                        onClick={() => insertEmoji(emoji)}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
 
-              <button
-                type="button"
-                className="mb-0.5 rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
-                aria-label={t('messages.emoji')}
-                onClick={() => inputRef.current?.focus()}
-              >
-                <Smile className="h-6 w-6" />
-              </button>
-
-              <div className="flex min-w-0 flex-1 items-center rounded-lg bg-white px-3 py-2">
+              <div className="relative flex items-end gap-1.5 px-2 py-1.5">
                 <input
-                  ref={inputRef}
-                  value={text}
-                  onChange={(e) => setText(e.target.value)}
-                  placeholder={editing ? t('messages.editPlaceholder') : t('messages.placeholder')}
-                  className="w-full bg-transparent text-[15px] text-[#111b21] placeholder:text-[#667781] outline-none"
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
+                  ref={imageRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleAttach(file);
                   }}
                 />
-              </div>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf,.doc,.docx,.xls,.xlsx,.txt,image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void handleAttach(file);
+                  }}
+                />
 
-              {showComposerSend ? (
+                <div className="relative">
+                  <button
+                    type="button"
+                    className="mb-0.5 rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef] disabled:opacity-50"
+                    disabled={uploading || !!editing}
+                    onClick={() => {
+                      setEmojiOpen(false);
+                      setAttachMenu((v) => !v);
+                    }}
+                    aria-label={t('messages.attach')}
+                  >
+                    <Plus className="h-5 w-5" />
+                  </button>
+                  {attachMenu && (
+                    <div className="absolute bottom-10 left-0 z-20 w-44 overflow-hidden rounded-xl bg-white py-1 shadow-xl">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#f5f6f6]"
+                        onClick={() => imageRef.current?.click()}
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#007bfc] text-white">
+                          <ImageIcon className="h-4 w-4" />
+                        </span>
+                        {t('messages.photos')}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm hover:bg-[#f5f6f6]"
+                        onClick={() => fileRef.current?.click()}
+                      >
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-[#7f66ff] text-white">
+                          <FileText className="h-4 w-4" />
+                        </span>
+                        {t('messages.document')}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
                 <button
                   type="button"
-                  className="mb-0.5 rounded-full p-2 text-[#54656f] hover:bg-[#e9edef] disabled:opacity-40"
+                  className={cn(
+                    'mb-0.5 rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef]',
+                    emojiOpen && 'bg-[#e9edef] text-[#008069]'
+                  )}
+                  aria-label={t('messages.emoji')}
+                  onClick={() => {
+                    setAttachMenu(false);
+                    setEmojiOpen((v) => !v);
+                  }}
+                >
+                  <Smile className="h-5 w-5" />
+                </button>
+
+                <div className="flex min-w-0 flex-1 items-center rounded-lg bg-white px-3 py-1.5">
+                  <input
+                    ref={inputRef}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    placeholder={editing ? t('messages.editPlaceholder') : t('messages.placeholder')}
+                    className="w-full bg-transparent text-[14px] text-[#111b21] placeholder:text-[#667781] outline-none"
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSend();
+                      }
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  className="mb-0.5 rounded-full p-1.5 text-[#54656f] hover:bg-[#e9edef] disabled:opacity-40"
                   onClick={handleSend}
-                  disabled={sendMutation.isPending || editMutation.isPending || uploading}
+                  disabled={!text.trim() || sendMutation.isPending || editMutation.isPending || uploading}
                   aria-label={editing ? t('common.save') : t('messages.send')}
                 >
-                  <SendHorizontal className="h-6 w-6" />
+                  <SendHorizontal className="h-5 w-5" />
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="mb-0.5 rounded-full p-2 text-[#54656f] hover:bg-[#e9edef]"
-                  aria-label={t('messages.voice')}
-                  onClick={() => window.alert(t('messages.voiceSoon'))}
-                >
-                  <Mic className="h-6 w-6" />
-                </button>
-              )}
+              </div>
             </footer>
           </>
         ) : (
@@ -736,67 +825,6 @@ export function MessagesPage() {
           </div>
         )}
       </section>
-
-      {/* Context menu */}
-      {menuId && menuPos && (
-        <div
-          className="fixed z-50 w-48 overflow-hidden rounded-lg bg-white py-1 shadow-xl"
-          style={{ left: menuPos.x, top: menuPos.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {(() => {
-            const msg = messages.find((m) => m.id === menuId);
-            if (!msg) return null;
-            const mine = msg.sender_id === user?.id;
-            return (
-              <>
-                {mine && (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-[#111b21] hover:bg-[#f5f6f6]"
-                    onClick={() => {
-                      setEditing(msg);
-                      setText(msg.content === '📎' ? '' : msg.content.replace(/^Encaminhada:\s*/, ''));
-                      setMenuId(null);
-                      setMenuPos(null);
-                      inputRef.current?.focus();
-                    }}
-                  >
-                    <Pencil className="h-4 w-4 text-[#54656f]" />
-                    {t('messages.edit')}
-                  </button>
-                )}
-                {mine && (
-                  <button
-                    type="button"
-                    className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-red-600 hover:bg-red-50"
-                    onClick={() => {
-                      if (window.confirm(t('messages.deleteConfirm'))) {
-                        deleteMutation.mutate(msg.id);
-                      }
-                    }}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                    {t('messages.delete')}
-                  </button>
-                )}
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm text-[#111b21] hover:bg-[#f5f6f6]"
-                  onClick={() => {
-                    setForwardMsg(msg);
-                    setMenuId(null);
-                    setMenuPos(null);
-                  }}
-                >
-                  <Forward className="h-4 w-4 text-[#54656f]" />
-                  {t('messages.forward')}
-                </button>
-              </>
-            );
-          })()}
-        </div>
-      )}
 
       {/* Forward modal */}
       {forwardMsg && (
@@ -909,7 +937,6 @@ export function MessagesPage() {
                       <Avatar name={friend.full_name} src={friend.avatar_url || undefined} className="h-10 w-10" />
                       <div className="min-w-0">
                         <p className="truncate text-sm font-medium">{friend.full_name}</p>
-                        <p className="truncate text-xs text-[#667781]">@{friend.username}</p>
                       </div>
                     </button>
                   );
