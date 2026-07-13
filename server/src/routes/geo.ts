@@ -7,7 +7,17 @@ const router = Router();
 const OUTROS = 'OUTROS';
 const EXCLUDED_COUNTRY = 'BR';
 
+const regionNames = new Intl.DisplayNames(['pt-BR'], { type: 'region' });
+
+/** Nome do país em português (ex.: US → Estados Unidos). */
 function countryName(code: string): string {
+  const normalized = code === 'UK' ? 'GB' : code.toUpperCase();
+  try {
+    const localized = regionNames.of(normalized);
+    if (localized) return localized;
+  } catch {
+    /* código inválido */
+  }
   return Country.getCountryByCode(code)?.name || code;
 }
 
@@ -131,7 +141,7 @@ router.get('/used-categories', authMiddleware, async (req, res) => {
 
 router.get('/countries', authMiddleware, (_req, res) => {
   const countries = Country.getAllCountries()
-    .map((c) => ({ code: c.isoCode, name: c.name }))
+    .map((c) => ({ code: c.isoCode, name: countryName(c.isoCode) }))
     .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   res.json(countries);
 });

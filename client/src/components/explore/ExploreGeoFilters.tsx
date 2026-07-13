@@ -25,7 +25,7 @@ export function ExploreGeoFilters({ tab, filters, onChange, className }: Props) 
   const typeParam = `type=${tab}`;
 
   const { data: countries = [] } = useQuery({
-    queryKey: ['geo-used-countries', tab],
+    queryKey: ['geo-used-countries', tab, 'pt-BR'],
     queryFn: () => api<GeoItem[]>(`/geo/used-countries?${typeParam}`),
   });
 
@@ -96,7 +96,7 @@ export function ExploreGeoFilters({ tab, filters, onChange, className }: Props) 
 
 export function useCountryNameMap() {
   const { data: countries = [] } = useQuery({
-    queryKey: ['geo-countries'],
+    queryKey: ['geo-countries', 'pt-BR'],
     queryFn: () => api<GeoItem[]>('/geo/countries'),
   });
   return Object.fromEntries(countries.map((c) => [c.code, c.name]));
