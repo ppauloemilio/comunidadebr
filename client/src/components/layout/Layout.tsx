@@ -26,6 +26,7 @@ export function Layout() {
   const location = useLocation();
   const [menuOpen, setMenuOpen] = useState(false);
   const isFeed = location.pathname === '/feed' || location.pathname === '/';
+  const isMessages = location.pathname === '/messages' || location.pathname.startsWith('/messages');
 
   // Mesma fonte do avatar do perfil — evita bola verde no header
   const { data: meProfile } = useQuery({
@@ -159,11 +160,20 @@ export function Layout() {
         </div>
       </header>
 
-      <div className={cn('mx-auto max-w-6xl px-4 py-4 lg:px-6', isFeed ? '' : 'pb-20 md:pb-6')}>
+      <div
+        className={cn(
+          isMessages
+            ? 'mx-auto h-[calc(100vh-3.5rem)] max-w-6xl px-0 md:px-4 md:py-3 lg:px-6'
+            : cn('mx-auto max-w-6xl px-4 py-4 lg:px-6', isFeed ? '' : 'pb-20 md:pb-6')
+        )}
+      >
         <Outlet />
       </div>
 
-      <nav className="fixed bottom-0 left-0 right-0 z-40 flex border-t border-slate-200 bg-white md:hidden">
+      <nav className={cn(
+        'fixed bottom-0 left-0 right-0 z-40 flex border-t border-slate-200 bg-white md:hidden',
+        isMessages && 'hidden'
+      )}>
         {mainNav.map(({ to, icon: Icon, labelKey }) => (
           <NavLink
             key={to}
